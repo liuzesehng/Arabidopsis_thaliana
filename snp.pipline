@@ -1,0 +1,10 @@
+#下载snp矩阵
+
+#获取snp信息
+python h5m2csv.py
+
+#过滤MAF小于0.05的snp
+python snp.filter.py
+
+#snp注释，选取RCA上游和基因区的SNP
+bash snp.filter.sh

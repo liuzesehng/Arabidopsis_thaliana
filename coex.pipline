@@ -1,0 +1,12 @@
+#整理不同环境下RCA转录本表达量数据
+bash coex.file.sh
+
+#共表达网络分析
+Rscript coex/WGCNA.R
+
+#富集分析
+bash coex/coex.RCA.sh
+python coex/coex.gene.transfer.py
+#TEs过滤
+bash coex/Tf_Recognition.py
+Rscript coex/GO.R

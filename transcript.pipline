@@ -1,0 +1,28 @@
+#Download the data from the SRA database
+bash wget.trans.sh
+
+#salmon建立索引
+bash salmon_index.sh
+
+#salmon转录本比对
+bash salmon.sh
+bash salmon1.sh
+
+#选取RCA基因的转录本
+bash RCA.transcript.sh
+
+#获取地理信息
+python request.py
+
+#地理信息数据处理
+bash lonla.sh
+
+#RCA转录本计算、地理信息集合
+bash RCA.trim.sh
+
+#XGBoot机器学习-转录本和地理信息
+python XGBoot.TPM.py
+python XGBoot.TPM.α.py
+python XGBoot.TPM.β.py
+python XGBoot.TPM.β1.py
+ptyhon XGBoot.TPM.β2.py

@@ -1,0 +1,35 @@
+#过滤甲基化数据
+bash 1.me.fastp.sh
+
+#bismark建立索引和比对
+bash 2.bismark.sh
+
+#提取甲基化信息
+bash 3.extract_meth_info.sh
+
+#设置RCA基因区、转录起始上游、转录起始下游
+bash 4.extract_me.loci.sh 处理bedgraph文件，单个位点单个甲基化
+
+#RCA基因区、转录起始上游、转录起始下游甲基化位点绘图（试验）
+bash 5.deeptools_CG.sh
+
+#RCA基因区、转录起始上游、转录起始下游区域甲基化程度计算
+bash 6.meth_count.sh
+
+#温度条件下，RCA基因区、转录起始上游、转录起始下游甲基化位点变异系数计算
+bash 7.meth_CV.sh
+
+#温度、纬度、海拔条件映射样本甲基化数据
+bash 8.meth_latitude.sh
+
+#纬度条件下，RCA基因区、转录起始上游、转录起始下游甲基化位点变异系数计算
+bash 9.meth_latitude.sh
+
+#海拔条件下，RCA基因区、转录起始上游、转录起始下游甲基化位点变异系数计算
+bash 10.meth_altitude.sh
+
+#不同甲基化类型下变异系数计算
+bash 12.meth_cv.count.sh
+
+#不同环境条件下甲基化变异系数的绘图;不同甲基化类型下变异系数绘图
+bash 11.meth_CV_deeptools.sh 
