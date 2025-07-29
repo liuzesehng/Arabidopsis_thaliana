@@ -52,7 +52,7 @@ process_bw() {
     
 	pref=${bw/.bw/}
 
-    #bigWigToBedGraph $bw $pref.bedGraph &&
+    bigWigToBedGraph $bw $pref.bedGraph &&
     #awk '$1 == "NC_003071.7" && $2 >= 16568745 && $2 <= 16570745 && $3 <= 16570745' $pref.bedGraph > $pref.RCA.promoter.bedGraph
     #awk '$1 == "NC_003071.7" && $2 >= 16570745 && $2 <= 16573692 && $3 <= 16573692' $pref.bedGraph > $pref.RCA.bedGraph
     #awk '$1 == "NC_003071.7" && $2 >= 16573692 && $2 <= 16575692 && $3 <= 16575692' $pref.bedGraph > $pref.RCA.terminator.bedGraph

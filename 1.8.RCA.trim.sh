@@ -1,6 +1,6 @@
 #!/bin/bash
 #RCA数据整理
-echo -e "Tem/℃\tLat\tLong\talt/m\tTPM\tα_TPM/%\tβ_TPM/%\tβ1_TPM/%\tβ2_TPM/%" > Alt.RCA3.tsv
+echo -e "Tem/℃\tLat\tLong\talt/m\tTPM\tα_TPM/%\tβ_TPM/%\tβ1_TPM/%\tβ2_TPM/%" > Alt.RCA.tsv
 for path in $(ls Abnormal/*/*/*/*.txt)
 do    
     # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段
@@ -21,7 +21,8 @@ do
     alt=$(awk '$1 == "'$name'" {print $4}' ../Ala.ab.location.txt)
 
     # 计算第四列第二行到第四行的值的总和
-    sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    sum=$(awk 'NR==5 {print $4}' $path)
 
     # 计算第四列第二行的值
     value2=$(awk 'NR==2 {print $4}' $path)
@@ -67,7 +68,7 @@ do
     fi
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$latitude\t$longitude\t$alt\t$sum\t$per2\t$persum2\t$per3\t$per4" >> Alt.RCA3.tsv
+    echo -e "$tem\t$latitude\t$longitude\t$alt\t$sum\t$per2\t$persum2\t$per3\t$per4" >> Alt.RCA.tsv
 done
 
 for path in $(ls Normal/*/*/*.txt)
@@ -88,7 +89,8 @@ do
     alt=$(awk '$1 == "'$name'" {print $4}' ../Ala.normal.location.txt)
 
     # 计算第四列第二行到第四行的值的总和
-    sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    sum=$(awk 'NR==5 {print $4}' $path)
 
     # 计算第四列第三行到第四行的值的总和
     sum2=$(awk 'NR>=3 && NR<=4 {sum += $4} END {print sum}' $path)
@@ -135,7 +137,7 @@ do
 
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$latitude\t$longitude\t$alt\t$sum\t$per2\t$persum2\t$per3\t$per4" >> Alt.RCA3.tsv
+    echo -e "$tem\t$latitude\t$longitude\t$alt\t$sum\t$per2\t$persum2\t$per3\t$per4" >> Alt.RCA.tsv
 done
 
 

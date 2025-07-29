@@ -1,5 +1,6 @@
 #!/bin/bash
-samtools faidx /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/Arabidopsis_thaliana.fa | cut -f 1,2 /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/Arabidopsis_thaliana.fa.fai > /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/faidx/Arabidopsis_thaliana.chrSize.txt
+samtools faidx /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/Arabidopsis_thaliana.fa 
+cut -f 1,2 /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/Arabidopsis_thaliana.fa.fai > /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/faidx/Arabidopsis_thaliana.chrSize.txt
 # 定义处理每个文件对或单文件的函数
 process_bam() {
     local bam="$1"

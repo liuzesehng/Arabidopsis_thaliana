@@ -29,7 +29,7 @@ bash 9.meth_latitude.sh
 bash 10.meth_altitude.sh
 
 #不同甲基化类型下变异系数计算
-bash 12.meth_cv.count.sh
+bash 11.meth_cv.count.sh
 
 #不同环境条件下甲基化变异系数的绘图;不同甲基化类型下变异系数绘图
-bash 11.meth_CV_deeptools.sh 
+bash 12.meth_CV_deeptools.sh 

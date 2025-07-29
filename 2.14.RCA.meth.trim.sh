@@ -129,7 +129,8 @@ do
             fi
         done
         # 计算第四列第二行到第四行的值的总和
-        sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+        # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+        sum=$(awk 'NR==5 {print $4}' $path)
 
         # 计算第四列第二行的值
         value2=$(awk 'NR==2 {print $4}' $path)
@@ -211,7 +212,8 @@ do
             fi
         done
         # 计算第四列第二行到第四行的值的总和
-        sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+        # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+        sum=$(awk 'NR==5 {print $4}' $path)
 
         # 计算第四列第二行的值
         value2=$(awk 'NR==2 {print $4}' $path)
@@ -312,7 +314,8 @@ do
     done
 
     # 计算第四列第二行到第四行的值的总和
-    sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    sum=$(awk 'NR==5 {print $4}' $path)
     
     # 计算第四列第三行到第四行的值的总和
     sum2=$(awk 'NR>=3 && NR<=4 {sum += $4} END {print sum}' $path)
