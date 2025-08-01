@@ -42,14 +42,14 @@ colnames(heatmap_data) <- ordered_indices
 rownames(heatmap_data) <- "TPM"
 
 # 对TPM值进行log10转换
-heatmap_data_log <- log10(heatmap_data + 1)  # 加1避免log(0)
+heatmap_data_log <- log10(heatmap_data)  # 加1避免log(0)
 
 # 创建温度分组注释
 temp_groups <- data$Tem..[ordered_indices]
 temp_annotation <- data.frame(
   Temperature = factor(temp_groups, levels = c("10", "16", "22"))
 )
-colnames(temp_annotation) <- colnames(heatmap_data_log)
+rownames(temp_annotation) <- colnames(heatmap_data_log)
 
 # 定义颜色
 temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
@@ -58,7 +58,7 @@ temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
 # 创建热图主体
 ht <- Heatmap(
   heatmap_data_log,
-  name = "log10(TPM+1)",
+  name = "log10(TPM)",
   cluster_rows = FALSE,
   cluster_columns = FALSE,
   show_row_names = FALSE,
@@ -67,7 +67,7 @@ ht <- Heatmap(
                    c("blue", "white", "red")),
   height = unit(8, "cm"),
   heatmap_legend_param = list(
-    title = "lgTpm",
+    title = "log10Tpm",
     title_position = "topcenter",
     legend_direction = "vertical",
     legend_width = unit(4, "cm"),

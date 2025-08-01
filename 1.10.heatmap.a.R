@@ -47,7 +47,7 @@ temp_groups <- data$Tem..[ordered_indices]
 temp_annotation <- data.frame(
   Temperature = factor(temp_groups, levels = c("10", "16", "22"))
 )
-colnames(temp_annotation) <- colnames(heatmap_data_log)
+rownames(temp_annotation) <- colnames(heatmap_data)
 
 # 定义颜色
 temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
@@ -124,3 +124,4 @@ cat("PC2:", round(pca_result$sdev[2]^2 / sum(pca_result$sdev^2) * 100, 2), "%\n"
 # 输出样本数量统计
 cat("\nSample counts by temperature:\n")
 print(table(data$Tem..))
+
