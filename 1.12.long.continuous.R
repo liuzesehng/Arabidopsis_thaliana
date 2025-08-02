@@ -114,7 +114,11 @@ group_means <- data_clean %>%
 
 significance_letters <- data.frame(
   group = c("-100--80", "-80--60", "-40--20", "-20-0", "0-20", "20-40", "40-60", "60-80", "80-100", "120-140", "140-160", "160-180"),
+<<<<<<< HEAD
   letter = c("bc", "ab", "bc", "a", "c", "ab", "bc", "ab", "c", "ab", "bc", "ab"),
+=======
+  letter = c("b", "bc", "bc", "a", "c", "bc", "c", "bc", "c", "bc", "bc", "bc"),
+>>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -296,7 +300,11 @@ group_means <- data_clean %>%
 # 根据统计结果和均值手动分配字母
 significance_letters <- data.frame(
   group = c("-100--80", "-80--60", "-40--20", "-20-0", "0-20", "20-40", "40-60", "60-80", "80-100", "120-140", "140-160", "160-180"),
+<<<<<<< HEAD
   letter = c("ab", "ab", "ab", "a", "b", "a", "a", "ab", "a", "ab", "ab", "ab"),
+=======
+  letter = c("b", "bc", "bc", "a", "c", "bc", "c", "bc", "c", "bc", "bc", "bc"),
+>>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -478,7 +486,11 @@ group_means <- data_clean %>%
 # 根据统计结果和均值手动分配字母
 significance_letters <- data.frame(
   group = c("-100--80", "-80--60", "-40--20", "-20-0", "0-20", "20-40", "40-60", "60-80", "80-100", "120-140", "140-160", "160-180"),
+<<<<<<< HEAD
   letter = c("ab", "ab", "ab", "b", "a", "b", "b", "ab", "b", "ab", "ab", "ab"),
+=======
+  letter = c("b", "bc", "bc", "a", "c", "bc", "c", "bc", "c", "bc", "bc", "bc"),
+>>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -655,7 +667,11 @@ group_means <- data_clean %>%
 # 根据统计结果和均值手动分配字母
 significance_letters <- data.frame(
   group = c("-100--80", "-80--60", "-40--20", "-20-0", "0-20", "20-40", "40-60", "60-80", "80-100", "120-140", "140-160", "160-180"),
+<<<<<<< HEAD
   letter = c("a", "ab", "ab", "ab", "b", "ab", "a", "ab", "ab", "ab", "ab", "ab"),
+=======
+  letter = c("b", "b", "b", "b", "a", "b", "a", "b", "b", "b", "b", "b"),
+>>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -832,7 +848,11 @@ group_means <- data_clean %>%
 # 根据统计结果和均值手动分配字母
 significance_letters <- data.frame(
   group = c("-100--80", "-80--60", "-40--20", "-20-0", "0-20", "20-40", "40-60", "60-80", "80-100", "120-140", "140-160", "160-180"),
+<<<<<<< HEAD
   letter = c("b", "ab", "ab", "b", "a", "b", "b", "b", "b", "ab", "ab", "ab"),
+=======
+  letter = c("b", "b", "b", "b", "a", "c", "c", "c", "c", "b", "b", "b"),
+>>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
