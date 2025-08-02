@@ -36,14 +36,14 @@ p <- ggplot(data, aes(x = Temperature, y = β2_TPM.., fill = Temperature)) +
   scale_fill_manual(values = c("10" = "blue", "16" = "yellow", "22" = "red")) +
   # 添加显著性标记
   geom_signif(comparisons = list(c("10", "16"), c("16", "22"), c("10", "22")),
-              annotations = c("ns", "***", "***"),
+              annotations = c("***", "***", "***"),
               y_position = c(max(data$β2_TPM..) * 1.1, 
                            max(data$β2_TPM..) * 1.2, 
                            max(data$β2_TPM..) * 1.3),
               tip_length = 0.02,
               textsize = 4) +
   labs(
-    y = "β2Tpm",
+    y = "b2Tpm",
     fill = "Tem/°C"
   ) +
   theme_minimal() +

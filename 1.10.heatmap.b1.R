@@ -47,7 +47,7 @@ temp_groups <- data$Tem..[ordered_indices]
 temp_annotation <- data.frame(
   Temperature = factor(temp_groups, levels = c("10", "16", "22"))
 )
-colnames(temp_annotation) <- colnames(heatmap_data_log)
+rownames(temp_annotation) <- colnames(heatmap_data)
 
 # 定义颜色
 temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
