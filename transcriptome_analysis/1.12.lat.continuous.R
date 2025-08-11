@@ -55,13 +55,6 @@ significance_letters <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
-  stringsAsFactors = FALSE
-)
-
 # 计算每组的最大值用于标记位置
 group_max <- data_clean %>%
   group_by(Lat_group_label) %>%
