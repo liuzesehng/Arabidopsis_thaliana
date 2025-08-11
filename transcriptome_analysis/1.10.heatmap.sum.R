@@ -9,6 +9,7 @@ library(RColorBrewer)
 library(gridExtra)
 library(ComplexHeatmap)
 library(circlize)
+library(viridis)
 
 # 读取数据
 data <- read.table("Alt.RCA.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
@@ -63,8 +64,10 @@ ht <- Heatmap(
   cluster_columns = FALSE,
   show_row_names = FALSE,
   show_column_names = FALSE,
-  col = colorRamp2(c(min(heatmap_data_log), median(heatmap_data_log), max(heatmap_data_log)), 
-                   c("blue", "white", "red")),
+  col = colorRamp2(
+    seq(min(heatmap_data_log), max(heatmap_data_log), length.out = 100),
+    viridis(100)
+  ),
   height = unit(8, "cm"),
   heatmap_legend_param = list(
     title = "log10Tpm",
