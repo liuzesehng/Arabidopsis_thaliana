@@ -35,7 +35,6 @@ data_clean$Alt_midpoint <- as.numeric(gsub("\\[([0-9.-]+),.*", "\\1", data_clean
 aov_result <- aov(TPM ~ Alt_group_label, data = data_clean)
 tukey_result <- TukeyHSD(aov_result)
 
-<<<<<<< HEAD
 # 根据Tukey检验结果生成显著性字母标记
 pairwise_pvalues <- tukey_result$Alt_group_label[, "p adj"]
 group_levels <- unique(data_clean$Alt_group_label)
@@ -101,25 +100,6 @@ group_means <- data_clean %>%
 significance_letters <- data.frame(
   group = sort(group_names),
   letter = c("b", "a", "ab", "ab", "ab", "a", "ab", "a"), # 根据实际统计结果调整
-=======
-# 由于multcompLetters对复杂组名有问题，我们使用手动方法生成显著性字母
-# 提取p值
-p_values <- tukey_result$Alt_group_label[,"p adj"]
-group_names <- unique(data_clean$Alt_group_label)
-
-# 根据Tukey检验结果手动分配字母
-# 从Alt-TPM的分析结果：780-1180和380-780组显著高于其他组
-significance_letters <- data.frame(
-  group = sort(group_names),
-  letter = c("c", "b", "b", "c", "c", "c", "c", "c"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -226,7 +206,6 @@ data_clean$Alt_midpoint <- as.numeric(gsub("\\[([0-9.-]+),.*", "\\1", data_clean
 aov_result <- aov(α_TPM.. ~ Alt_group_label, data = data_clean)
 tukey_result <- TukeyHSD(aov_result)
 
-<<<<<<< HEAD
 # 根据Tukey检验结果生成显著性字母标记
 pairwise_pvalues <- tukey_result$Alt_group_label[, "p adj"]
 group_levels <- unique(data_clean$Alt_group_label)
@@ -241,22 +220,6 @@ group_means <- data_clean %>%
 significance_letters <- data.frame(
   group = sort(group_names),
   letter = c("b", "a", "ab", "ab", "ab", "a", "ab", "a"),  # 根据实际统计结果调整
-=======
-# 提取p值并手动分配显著性字母
-p_values <- tukey_result$Alt_group_label[,"p adj"]
-group_names <- unique(data_clean$Alt_group_label)
-
-significance_letters <- data.frame(
-  group = sort(group_names),
-  letter = c("a", "b", "b", "b", "a", "a", "a", "a"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -322,10 +285,6 @@ data_summary <- data_clean %>%
   ) %>%
   arrange(Alt_group_label) %>%
   left_join(significance_letters, by = c("Alt_group_label" = "group"))
-<<<<<<< HEAD
-
-=======
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 print("各海拔区间的αTPM统计信息:")
 print(data_summary)
 
@@ -366,7 +325,6 @@ data_clean$Alt_midpoint <- as.numeric(gsub("\\[([0-9.-]+),.*", "\\1", data_clean
 aov_result <- aov(β_TPM.. ~ Alt_group_label, data = data_clean)
 tukey_result <- TukeyHSD(aov_result)
 
-<<<<<<< HEAD
 # 根据Tukey检验结果生成显著性字母标记
 pairwise_pvalues <- tukey_result$Alt_group_label[, "p adj"]
 group_levels <- unique(data_clean$Alt_group_label)
@@ -381,22 +339,6 @@ group_means <- data_clean %>%
 significance_letters <- data.frame(
   group = sort(group_names),
   letter = c("a", "b", "ab", "ab", "ab", "b", "ab", "b"),  # 根据实际统计结果调整
-=======
-# 提取p值并手动分配显著性字母
-p_values <- tukey_result$Alt_group_label[,"p adj"]
-group_names <- unique(data_clean$Alt_group_label)
-
-significance_letters <- data.frame(
-  group = sort(group_names),
-  letter = c("a", "b", "b", "b", "a", "a", "a", "a"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -503,7 +445,6 @@ data_clean$Alt_midpoint <- as.numeric(gsub("\\[([0-9.-]+),.*", "\\1", data_clean
 aov_result <- aov(β1_TPM.. ~ Alt_group_label, data = data_clean)
 tukey_result <- TukeyHSD(aov_result)
 
-<<<<<<< HEAD
 # 根据Tukey检验结果生成显著性字母标记
 pairwise_pvalues <- tukey_result$Alt_group_label[, "p adj"]
 group_levels <- unique(data_clean$Alt_group_label)
@@ -515,28 +456,12 @@ group_means <- data_clean %>%
   arrange(desc(mean_TPM))
 
 # 根据统计结果和均值手动分配字母
-=======
-# 提取p值并手动分配显著性字母 - β1TPM所有组无显著差异
-p_values <- tukey_result$Alt_group_label[,"p adj"]
-group_names <- unique(data_clean$Alt_group_label)
-
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 significance_letters <- data.frame(
   group = sort(group_names),
   letter = rep("a", length(group_names)),  # 所有组无显著差异
   stringsAsFactors = FALSE
 )
 
-<<<<<<< HEAD
-=======
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
-  stringsAsFactors = FALSE
-)
-
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 # 计算每组的最大值用于标记位置
 group_max <- data_clean %>%
   group_by(Alt_group_label) %>%
@@ -599,11 +524,7 @@ data_summary <- data_clean %>%
   ) %>%
   arrange(Alt_group_label) %>%
   left_join(significance_letters, by = c("Alt_group_label" = "group"))
-<<<<<<< HEAD
 print(data_summary)
-=======
-
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 print("各海拔区间的β1TPM统计信息:")
 # 显示方差分析结果
 cat("\n=== β1TPM方差分析结果 ===\n")
@@ -642,7 +563,6 @@ data_clean$Alt_midpoint <- as.numeric(gsub("\\[([0-9.-]+),.*", "\\1", data_clean
 aov_result <- aov(β2_TPM.. ~ Alt_group_label, data = data_clean)
 tukey_result <- TukeyHSD(aov_result)
 
-<<<<<<< HEAD
 # 根据Tukey检验结果生成显著性字母标记
 pairwise_pvalues <- tukey_result$Alt_group_label[, "p adj"]
 group_levels <- unique(data_clean$Alt_group_label)
@@ -657,22 +577,6 @@ group_means <- data_clean %>%
 significance_letters <- data.frame(
   group = sort(group_names),
   letter = c("a", "b", "ab", "ab", "ab", "b", "ab", "b"),  # 根据实际统计结果调整
-=======
-# 提取p值并手动分配显著性字母
-p_values <- tukey_result$Alt_group_label[,"p adj"]
-group_names <- unique(data_clean$Alt_group_label)
-
-significance_letters <- data.frame(
-  group = sort(group_names),
-  letter = c("a", "b", "b", "b", "a", "a", "a", "a"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -755,7 +659,3 @@ cat("β2TPM原始数据海拔范围:", min(data_clean$alt.m, na.rm = TRUE), "到
 cat("β2TPM总数据点数:", nrow(data_clean), "\n")
 cat("β2TPM海拔区间数:", length(unique(data_clean$Alt_group)), "\n")
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
