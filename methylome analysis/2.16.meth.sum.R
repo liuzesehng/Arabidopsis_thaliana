@@ -419,7 +419,7 @@ group_names <- unique(data_clean$CHH_terminator_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-  letter = c("a", "b", "b", "ab", "ab", "ab"),  # 根据实际统计结果调整
+  letter = c("b", "a", "ab", "ab", "ab", "ab", "ab"),  # 根据实际统计结果调整
   stringsAsFactors = FALSE
 )
 
@@ -510,12 +510,12 @@ data_clean <- data %>%
 
 # 区间
 start_val <- min(data_clean$CHG_promoter, na.rm = TRUE)
-end_val <- ceiling(max(data_clean$CHG_promoter, na.rm = TRUE) * 10) / 10
+end_val <- ceiling(max(data_clean$CHG_promoter, na.rm = TRUE) * 100) / 100
 if (end_val < start_val) {
   # 处理特殊情况，强制区间为10
-  breaks_seq <- c(start_val, start_val + 0.05)
+  breaks_seq <- c(start_val, start_val + 0.005)
 } else {
-  breaks_seq <- seq(start_val, end_val, by = 0.05)
+  breaks_seq <- seq(start_val, end_val, by = 0.005)
 }
 data_clean$CHG_promoter_group <- cut(
   data_clean$CHG_promoter,
@@ -530,7 +530,7 @@ names(break_labels) <- levels(data_clean$CHG_promoter_group)
 data_clean$CHG_promoter_group_label <- break_labels[as.character(data_clean$CHG_promoter_group)]
 
 # 计算每个CHG_promoter区间的中点，用于x轴位置
-data_clean$CHG_promoter_midpoint <- as.numeric(gsub("\\[([0-9.]+),.*", "\\1", data_clean$CHG_promoter_group)) + 0.025
+data_clean$CHG_promoter_midpoint <- as.numeric(gsub("\\[([0-9.]+),.*", "\\1", data_clean$CHG_promoter_group)) + 0.0025
 
 # 进行方差分析和多重比较检验
 aov_result <- aov(TPM ~ CHG_promoter_group_label, data = data_clean)
@@ -542,7 +542,7 @@ group_names <- unique(data_clean$CHG_promoter_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-  letter = c("a", "b", "b", "ab", "ab", "ab"),  # 根据实际统计结果调整
+  letter = c("a", "a", "a", "a"),  # 根据实际统计结果调整
   stringsAsFactors = FALSE
 )
 
@@ -633,12 +633,12 @@ data_clean <- data %>%
 
 # 区间
 start_val <- min(data_clean$CHH_132, na.rm = TRUE)
-end_val <- ceiling(max(data_clean$CHH_132, na.rm = TRUE) * 10) / 10
+end_val <- ceiling(max(data_clean$CHH_132, na.rm = TRUE) / 10) * 10
 if (end_val < start_val) {
   # 处理特殊情况，强制区间为10
-  breaks_seq <- c(start_val, start_val + 0.05)
+  breaks_seq <- c(start_val, start_val + 5)
 } else {
-  breaks_seq <- seq(start_val, end_val, by = 0.05)
+  breaks_seq <- seq(start_val, end_val, by = 5)
 }
 data_clean$CHH_132_group <- cut(
   data_clean$CHH_132,
@@ -653,7 +653,7 @@ names(break_labels) <- levels(data_clean$CHH_132_group)
 data_clean$CHH_132_group_label <- break_labels[as.character(data_clean$CHH_132_group)]
 
 # 计算每个CHH_132区间的中点，用于x轴位置
-data_clean$CHH_132_midpoint <- as.numeric(gsub("\\[([0-9.]+),.*", "\\1", data_clean$CHH_132_group)) + 0.025
+data_clean$CHH_132_midpoint <- as.numeric(gsub("\\[([0-9.]+),.*", "\\1", data_clean$CHH_132_group)) + 5
 
 # 进行方差分析和多重比较检验
 aov_result <- aov(TPM ~ CHH_132_group_label, data = data_clean)
@@ -665,7 +665,7 @@ group_names <- unique(data_clean$CHH_132_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-  letter = c("a", "b", "b", "ab", "ab", "ab"),  # 根据实际统计结果调整
+  letter = c("b", "a", "ab", "ab", "ab", "ab", "ab"),  # 根据实际统计结果调整
   stringsAsFactors = FALSE
 )
 
@@ -747,4 +747,5 @@ print(tukey_result)
 cat("CHH_132_TPM原始数据范围:", min(data_clean$CHH_132, na.rm = TRUE), "到", max(data_clean$CHH_132, na.rm = TRUE), "\n")
 cat("CHH_132_TPM总数据点数:", nrow(data_clean), "\n")
 cat("CHH_132_TPM区间数:", length(unique(data_clean$CHH_132_group)), "\n")
+
 
