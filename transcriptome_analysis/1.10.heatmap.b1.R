@@ -9,18 +9,19 @@ library(RColorBrewer)
 library(gridExtra)
 library(ComplexHeatmap)
 library(circlize)
+library(viridis)
 
 # 读取数据
 data <- read.table("Alt.RCA.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
 
 # 数据预处理
 # 提取a_TPM值（第5列）和温度信息（第1列）
-tpm_values <- data$β2_TPM..
+tpm_values <- data$β1_TPM..
 temperature <- data[, 1]
 
 # 执行PCA（如果数据维度允许）
 # 基于其他列创建更多特征用于PCA
-feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "β2_TPM..")
+feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "β1_TPM..")
 pca_data <- data[, feature_cols]
 pca_data <- pca_data[complete.cases(pca_data), ]
 
@@ -37,9 +38,9 @@ cluster_order <- hclust_result$order
 ordered_indices <- which(complete.cases(data[, feature_cols]))[cluster_order]
 
 # 创建热图数据 - 转置矩阵使样本成为列
-heatmap_data <- matrix(data$β2_TPM..[ordered_indices], nrow = 1)
+heatmap_data <- matrix(data$β1_TPM..[ordered_indices], nrow = 1)
 colnames(heatmap_data) <- ordered_indices
-rownames(heatmap_data) <- "β2_TPM.."
+rownames(heatmap_data) <- "β1_TPM.."
 
 
 # 创建温度分组注释
@@ -56,16 +57,18 @@ temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
 # 创建热图主体
 ht <- Heatmap(
   heatmap_data,
-  name = "β2_TPM..",
+  name = "β1_TPM..",
   cluster_rows = FALSE,
   cluster_columns = FALSE,
   show_row_names = FALSE,
   show_column_names = FALSE,
-  col = colorRamp2(c(min(heatmap_data), median(heatmap_data), max(heatmap_data)), 
-                   c("blue", "white", "red")),
+  col = colorRamp2(
+    seq(min(heatmap_data), max(heatmap_data), length.out = 100),
+    viridis(100)
+  ),
   height = unit(8, "cm"),
   heatmap_legend_param = list(
-    title = "β2Tpm",
+    title = "β1Tpm",
     title_position = "topcenter",
     legend_direction = "vertical",
     legend_width = unit(4, "cm")
@@ -95,7 +98,7 @@ final_heatmap <- ht
 final_heatmap <- final_heatmap %v% bottom_ha
 
 # 保存为PDF
-pdf_file <- "b2_rca_pca_heatmap.pdf"
+pdf_file <- "b1_rca_pca_heatmap.pdf"
 cairo_pdf(pdf_file, width = 16, height = 10, fallback_resolution = 1200)
 
 # 创建图例列表

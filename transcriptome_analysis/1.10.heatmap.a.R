@@ -9,18 +9,19 @@ library(RColorBrewer)
 library(gridExtra)
 library(ComplexHeatmap)
 library(circlize)
+library(viridis)
 
 # 读取数据
 data <- read.table("Alt.RCA.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
 
 # 数据预处理
-# 提取TPM值（第5列）和温度信息（第1列）
-tpm_values <- data$TPM
+# 提取a_TPM值（第5列）和温度信息（第1列）
+tpm_values <- data$α_TPM..
 temperature <- data[, 1]
 
 # 执行PCA（如果数据维度允许）
 # 基于其他列创建更多特征用于PCA
-feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "TPM")
+feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "α_TPM..")
 pca_data <- data[, feature_cols]
 pca_data <- pca_data[complete.cases(pca_data), ]
 
@@ -37,19 +38,17 @@ cluster_order <- hclust_result$order
 ordered_indices <- which(complete.cases(data[, feature_cols]))[cluster_order]
 
 # 创建热图数据 - 转置矩阵使样本成为列
-heatmap_data <- matrix(data$TPM[ordered_indices], nrow = 1)
+heatmap_data <- matrix(data$α_TPM..[ordered_indices], nrow = 1)
 colnames(heatmap_data) <- ordered_indices
-rownames(heatmap_data) <- "TPM"
+rownames(heatmap_data) <- "α_TPM.."
 
-# 对TPM值进行log10转换
-heatmap_data_log <- log10(heatmap_data)  # 加1避免log(0)
 
 # 创建温度分组注释
 temp_groups <- data$Tem..[ordered_indices]
 temp_annotation <- data.frame(
   Temperature = factor(temp_groups, levels = c("10", "16", "22"))
 )
-rownames(temp_annotation) <- colnames(heatmap_data_log)
+rownames(temp_annotation) <- colnames(heatmap_data)
 
 # 定义颜色
 temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
@@ -57,23 +56,22 @@ temp_colors <- c("10" = "blue", "16" = "yellow", "22" = "red")
 # 使用ComplexHeatmap包创建热图
 # 创建热图主体
 ht <- Heatmap(
-  heatmap_data_log,
-  name = "log10(TPM)",
+  heatmap_data,
+  name = "α_TPM..",
   cluster_rows = FALSE,
   cluster_columns = FALSE,
   show_row_names = FALSE,
   show_column_names = FALSE,
-  col = colorRamp2(c(min(heatmap_data_log), median(heatmap_data_log), max(heatmap_data_log)), 
-                   c("blue", "white", "red")),
+  col = colorRamp2(
+    seq(min(heatmap_data), max(heatmap_data), length.out = 100),
+    viridis(100)
+  ),
   height = unit(8, "cm"),
   heatmap_legend_param = list(
-    title = "log10Tpm",
+    title = "αTpm",
     title_position = "topcenter",
     legend_direction = "vertical",
-    legend_width = unit(4, "cm"),
-    labels_gp = gpar(fontsize = 8),
-    at = pretty(range(heatmap_data_log), n = 5),
-    labels = sprintf("%.1f", pretty(range(heatmap_data_log), n = 5))
+    legend_width = unit(4, "cm")
   )
 )
 
@@ -100,7 +98,7 @@ final_heatmap <- ht
 final_heatmap <- final_heatmap %v% bottom_ha
 
 # 保存为PDF
-pdf_file <- "rca_pca_heatmap.pdf"
+pdf_file <- "a_rca_pca_heatmap.pdf"
 cairo_pdf(pdf_file, width = 16, height = 10, fallback_resolution = 1200)
 
 # 创建图例列表
@@ -129,11 +127,4 @@ cat("PC2:", round(pca_result$sdev[2]^2 / sum(pca_result$sdev^2) * 100, 2), "%\n"
 # 输出样本数量统计
 cat("\nSample counts by temperature:\n")
 print(table(data$Tem..))
-
-
-
-
-
-
-
 

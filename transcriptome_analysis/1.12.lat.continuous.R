@@ -55,13 +55,6 @@ significance_letters <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
-  stringsAsFactors = FALSE
-)
-
 # 计算每组的最大值用于标记位置
 group_max <- data_clean %>%
   group_by(Lat_group_label) %>%
@@ -268,11 +261,7 @@ cat("αTPM纬度区间数:", length(unique(data_clean$Lat_group)), "\n")
 # 清理数据，去除缺失值
 data_clean <- data %>%
   filter(!is.na(Lat) & !is.na(β_TPM..)) %>%
-<<<<<<< HEAD
   filter(Lat >= 30)  # 只保留纬度≥30的数据
-=======
-  filter(Lat >= 30)
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 
 # 创建纬度区间分组（以5度为区间）
 data_clean$Lat_group <- cut(data_clean$Lat, 
@@ -299,18 +288,7 @@ group_names <- unique(data_clean$Lat_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-<<<<<<< HEAD
   letter = c("b", "b", "b", "b", "b", "a", "a"),  # 根据实际统计结果调整
-=======
-  letter = c("a", "b", "c", "d", "e", "f", "g"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -380,7 +358,6 @@ data_summary <- data_clean %>%
 print("各纬度区间的βTPM统计信息:")
 print(data_summary)
 
-<<<<<<< HEAD
 # 显示方差分析结果
 cat("\n=== βTPM方差分析结果 ===\n")
 print(summary(aov_result))
@@ -394,14 +371,6 @@ cat("βTPM原始数据纬度范围:", min(data_clean$Lat, na.rm = TRUE), "到", 
 cat("βTPM总数据点数:", nrow(data_clean), "\n")
 cat("βTPM纬度区间数:", length(unique(data_clean$Lat_group)), "\n")
 
-=======
-cat("\n=== βTPM方差分析结果 ===\n")
-print(summary(aov_result))
-
-cat("\n=== βTPM Tukey多重比较检验结果 ===\n")
-print(tukey_result)
-
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 
 # Lat-B1TPM列
 # 清理数据，去除缺失值
@@ -434,18 +403,7 @@ group_names <- unique(data_clean$Lat_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-<<<<<<< HEAD
   letter = c("ab", "a", "a", "a", "a", "b", "b"),  # 根据实际统计结果调整
-=======
-  letter = c("a", "a", "a", "a", "a", "b", "c"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -512,17 +470,11 @@ data_summary <- data_clean %>%
 
 print("各纬度区间的β1TPM统计信息:")
 
-<<<<<<< HEAD
 # 显示方差分析结果
 cat("\n=== β1TPM方差分析结果 ===\n")
 print(summary(aov_result))
 
 # 显示多重比较检验结果
-=======
-cat("\n=== β1TPM方差分析结果 ===\n")
-print(summary(aov_result))
-
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 cat("\n=== β1TPM Tukey多重比较检验结果 ===\n")
 print(tukey_result)
 
@@ -558,18 +510,7 @@ group_names <- unique(data_clean$Lat_group_label)
 
 significance_letters <- data.frame(
   group = sort(group_names),
-<<<<<<< HEAD
   letter = c("b", "b", "b", "b", "b", "a", "a"),  # 根据实际统计结果调整
-=======
-  letter = c("a", "a", "a", "a", "a", "b", "b"),  # 根据实际统计结果调整
-  stringsAsFactors = FALSE
-)
-
-# 创建显著性字母数据框
-significance_letters <- data.frame(
-  group = names(tukey_letters$Letters),
-  letter = as.character(tukey_letters$Letters),
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
   stringsAsFactors = FALSE
 )
 
@@ -635,7 +576,6 @@ data_summary <- data_clean %>%
   left_join(significance_letters, by = c("Lat_group_label" = "group"))
 
 print("各纬度区间的β2TPM统计信息:")
-<<<<<<< HEAD
 
 # 显示方差分析结果
 cat("\n=== β2TPM方差分析结果 ===\n")
@@ -648,8 +588,6 @@ print(tukey_result)
   left_join(significance_letters, by = c("Lat_group_label" = "group"))
 
 print("各纬度区间的β2TPM统计信息:")
-=======
->>>>>>> 7ce1b7482e59a3d9c9e24fc1d4056dbb57938a7a
 print(data_summary)
 
 cat("\n=== β2TPM方差分析结果 ===\n")
