@@ -11,7 +11,7 @@ from sklearn.feature_selection import SelectFromModel
 from xgboost import XGBRegressor
 
 # 创建输出目录（如果不存在）
-output_dir = "TPM_import_results"
+output_dir = "TPM_3.4"
 os.makedirs(output_dir, exist_ok=True)
 
 # 加载已训练好的模型
