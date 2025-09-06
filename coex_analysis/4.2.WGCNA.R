@@ -99,7 +99,7 @@ text(sft$fitIndices[, 1],
 dev.off()
 
 #6.构建网络
-net <- blockwiseModules(rca_total, power = 14, maxBlockSize = 20000,
+net <- blockwiseModules(rca_total, power = 12, maxBlockSize = 20000,
                        TOMType = "unsigned", minModuleSize = 30,
                        reassignThreshold = 0, mergeCutHeight = 0.25,
                        numericLabels = TRUE, pamRespectsDendro = FALSE,
@@ -128,8 +128,8 @@ geneTree =net$dendrograms[[1]]
 
 #9.模块的导出
 #主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
-TOM=TOMsimilarityFromExpr(rca_total, power=14)
-modules= c("turquoise")
+TOM=TOMsimilarityFromExpr(rca_total, power=12)
+modules= c("brown", "salmon")
 probes = colnames(rca_total)
 inModule =is.finite(match(moduleColors,modules));
 modProbes=probes[inModule] #确定保留下来的。
@@ -158,7 +158,7 @@ print(p1)
 dev.off()
 
 #12.可视化-画模块之间的热图
-dissTOM = 1-TOMsimilarityFromExpr(rca_total, power = 14);
+dissTOM = 1-TOMsimilarityFromExpr(rca_total, power = 12);
 tiff(file="total/moduleColors.module_heatmap.tiff",width=17,height=17, units="cm", compression="lzw", res=1200)
 plotTOM <- dissTOM^7##为了更显著，用7次方
 p1 <- TOMplot(plotTOM, geneTree, moduleColors, main="Network heatmap plot, all genes")
