@@ -14,9 +14,9 @@ library(viridis)
 # 读取数据
 data <- read.table("Alt.RCA.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
 
-# 数据预处理 - 使用第一个文件的方法（total TPM使用log10变换）
-# 基于total TPM列创建特征用于PCA
-feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "TPM")
+# 数据预处理
+# 基于α_TPM..列创建特征用于PCA
+feature_cols <- c("Tem..", "Lat", "Long", "alt.m", "α_TPM..")
 pca_data <- data[, feature_cols]
 pca_data <- pca_data[complete.cases(pca_data), ]
 
@@ -32,24 +32,22 @@ hclust_result <- hclust(dist_matrix, method = "ward.D2")
 cluster_order <- hclust_result$order
 ordered_indices <- which(complete.cases(data[, feature_cols]))[cluster_order]
 
-# 创建合并的热图数据 - 5行（total、α、β、β1、β2）
-heatmap_data <- matrix(nrow = 5, ncol = length(ordered_indices))
+# 创建合并的热图数据 - 4行（α、β、β1、β2）
+heatmap_data <- matrix(nrow = 4, ncol = length(ordered_indices))
 
 # 填充数据
-# 第1行：total TPM (使用log10变换)
-heatmap_data[1, ] <- log10(data$TPM[ordered_indices])
-# 第2行：α TPM
-heatmap_data[2, ] <- data$α_TPM..[ordered_indices]
-# 第3行：β TPM  
-heatmap_data[3, ] <- data$β_TPM..[ordered_indices]
-# 第4行：β1 TPM
-heatmap_data[4, ] <- data$β1_TPM..[ordered_indices]
-# 第5行：β2 TPM
-heatmap_data[5, ] <- data$β2_TPM..[ordered_indices]
+# 第1行：α TPM
+heatmap_data[1, ] <- data$α_TPM..[ordered_indices]
+# 第2行：β TPM  
+heatmap_data[2, ] <- data$β_TPM..[ordered_indices]
+# 第3行：β1 TPM
+heatmap_data[3, ] <- data$β1_TPM..[ordered_indices]
+# 第4行：β2 TPM
+heatmap_data[4, ] <- data$β2_TPM..[ordered_indices]
 
 # 设置行名和列名
 colnames(heatmap_data) <- ordered_indices
-rownames(heatmap_data) <- c("total", "α", "β", "β1", "β2")
+rownames(heatmap_data) <- c("α", "β", "β1", "β2")
 
 # 创建温度分组注释
 temp_groups <- data$Tem..[ordered_indices]
