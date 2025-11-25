@@ -16,8 +16,9 @@ do
         echo "$output" >> Ala.normal.location.txt
     fi
 done
+sed -i '1iSample\tlat\tlong\talt' Ala.normal.location.txt
 
-exit 0
+# exit 0
 
 for i in $(ls salmon/Abnormal)
 do
@@ -36,8 +37,8 @@ do
         echo "$output" >> Ala.ab.location.txt
     fi
 done
-exit 0
-
+# exit 0
+sed -i '1iSample\tlat\tlong\talt' Ala.ab.location.txt
 
 
 
