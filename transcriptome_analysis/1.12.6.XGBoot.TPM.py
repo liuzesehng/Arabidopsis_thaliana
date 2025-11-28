@@ -14,6 +14,14 @@ import os
 # 读取原始数据
 df_all = pd.read_csv('/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_thaliana/list/RCA/RCA.geo.tsv', sep='\t')
 
+# log转换
+cols_to_log = ['total', 'α', 'β1', 'β2']
+# 确保只转换存在的列
+cols_to_transform = [col for col in cols_to_log if col in df_all.columns]
+
+# 使用 log1p (log(x+1)) 避免 log(0) 导致的错误
+df_all[cols_to_transform] = np.log1p(df_all[cols_to_transform])
+
 # 遍历列表 [10, 16, 22] 分别进行训练
 for filter_val in [10, 16, 22]:
     print(f"Processing dataset for value: {filter_val}")
@@ -36,13 +44,9 @@ for filter_val in [10, 16, 22]:
     #data = df.dropna()
 
     # 划分特征和目标变量
-    x = df.drop(['tem', 'total', 'α', 'β1', 'β2'], axis=1)
+    x = df.drop(['tem', 'total', 'α', 'β1', 'β2', "α/%", "β1/%", "β2/%"], axis=1)
     x = x.apply(pd.to_numeric, errors='coerce')
     y = df['total']
-
-    # 检查并处理缺失值
-    x = x.fillna(x.mean())
-    y = y.fillna(y.mean())
 
     # 划分训练集和测试集
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -51,10 +55,9 @@ for filter_val in [10, 16, 22]:
     params_xgb = {
         'booster': 'gbtree',              # 提升方法，这里使用梯度提升树（Gradient Boosting Tree）
         'objective': 'reg:squarederror',  # 损失函数，这里使用平方误差 
-        'max_leaves': 127,                # 每棵树的叶子节点数量，控制模型复杂度。较大值可以提高模型复杂度但可能导致过拟合    
         'verbosity': 0,                   # 控制 XGBoost 输出信息的详细程度，0表示无输出，1表示输出进度信息    
         'seed': 42,                       # 随机种子，用于重现模型的结果    
-        'nthread': 8,                    # 并行运算的线程数量，-1表示使用所有可用的CPU核心    
+        'nthread': 16,                    # 并行运算的线程数量，-1表示使用所有可用的CPU核心    
     }
 
     #初始化回归模型
@@ -76,7 +79,7 @@ for filter_val in [10, 16, 22]:
         param_grid=param_grid,    
         scoring='neg_root_mean_squared_error',    
         cv=5,    
-        n_jobs=8,    
+        n_jobs=4,    
         verbose=1
     )
 
@@ -175,7 +178,7 @@ for filter_val in [10, 16, 22]:
     plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
              label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-    plt.title(f'AT rubisco activase A (Group {filter_val})')
+    plt.title(f'AT rubisco activase (Group {filter_val})')
     plt.xlabel('Actual Values')
     plt.ylabel('Predicted Values')
     plt.legend(loc="upper left")

@@ -46,7 +46,7 @@ for filter_val in [10, 16, 22]:
     # 划分特征和目标变量
     x = df.drop(['tem', 'total', 'α', 'β1', 'β2', "α/%", "β1/%", "β2/%"], axis=1)
     x = x.apply(pd.to_numeric, errors='coerce')
-    y = df['β2']
+    y = df['α/%']
 
     # 划分训练集和测试集
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -54,7 +54,7 @@ for filter_val in [10, 16, 22]:
     # XGBoost模型参数
     params_xgb = {
         'booster': 'gbtree',              # 提升方法，这里使用梯度提升树（Gradient Boosting Tree）
-        'objective': 'reg:squarederror',  # 损失函数，这里使用平方误差 
+        'objective': 'reg:squarederror',  # 损失函数，这里使用平方误差   
         'verbosity': 0,                   # 控制 XGBoost 输出信息的详细程度，0表示无输出，1表示输出进度信息    
         'seed': 42,                       # 随机种子，用于重现模型的结果    
         'nthread': 16,                    # 并行运算的线程数量，-1表示使用所有可用的CPU核心    
@@ -139,7 +139,7 @@ for filter_val in [10, 16, 22]:
     # 设置y轴标签
     ax1.set_ylabel('Features', fontsize=12)
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/SHAP_corrected_B2_TPM_1.0.pdf", format='pdf', bbox_inches='tight')
+    plt.savefig(f"{output_dir}/SHAP_corrected_A_per_TPM_1.0.pdf", format='pdf', bbox_inches='tight')
     plt.show()
     plt.close()
 
@@ -152,7 +152,7 @@ for filter_val in [10, 16, 22]:
             
             # 处理文件名中的特殊字符，例如将 '/' 替换为 '_'
             safe_feature_name = feature.replace('/', '_').replace('\\', '_')
-            plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_B2_1.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
+            plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_A_per_1.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
             plt.close()
 
     # 可视化特征重要性
@@ -161,7 +161,7 @@ for filter_val in [10, 16, 22]:
     plt.title('Feature Importance')
     plt.xlabel('F-Score')  # 设置横坐标轴标题
     plt.ylabel('Features')  # 设置纵坐标轴标题
-    plt.savefig(f'{output_dir}/feature_B2_TPM_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
+    plt.savefig(f'{output_dir}/feature_A_per_TPM_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
     plt.show()
     plt.close()
 
@@ -178,16 +178,18 @@ for filter_val in [10, 16, 22]:
     plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
              label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-    plt.title(f'AT rubisco activase B2 (Group {filter_val})')
+    plt.title(f'AT rubisco activase A ratio (Group {filter_val})')
     plt.xlabel('Actual Values')
     plt.ylabel('Predicted Values')
     plt.legend(loc="upper left")
     #plt.grid(True) # 添加网格
-    plt.savefig(f'{output_dir}/B2_TPM_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
+    plt.savefig(f'{output_dir}/A_per_TPM_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
     plt.show()
     plt.close()
 
 
     # 保存模型
-    best_model.save_model(f'{output_dir}/my_model_B2_TPM_1.0.json')
-    joblib.dump(best_model , f'{output_dir}/XGBoost.B2_TPM_1.0.pkl')
+    best_model.save_model(f'{output_dir}/my_model_A_per_TPM_1.0.json')
+    joblib.dump(best_model , f'{output_dir}/XGBoost.A_per_TPM_1.0.pkl')
+
+

@@ -1,6 +1,6 @@
 #!/bin/bash
 #RCA数据整理
-awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β1", "β2"; exit }' Ala.ab.location.climate.txt > RCA/RCA.geo.tsv
+awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β1", "β2", "α/%", "β1/%", "β2/%"; exit }' Ala.ab.location.txt > RCA/RCA.geo.tsv
 for path in $(ls RCA/Abnormal/*/*.txt)
 do    
     # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段
@@ -12,9 +12,10 @@ do
     name=$(basename ${m})
 
     # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.ab.location.climate.txt)
+    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.ab.location.txt)
     if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in Ala.ab.location.climate.txt"
+        echo "Warning: Missing location fields for $name in Ala.ab.location.txt"
+        location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
     fi
 
     # 计算第四列第二行到第四行的值的总和
@@ -47,25 +48,25 @@ do
         value4=$(echo $value4 | awk '{printf "%.10f\n", $1}')
 
         # 使用 bc 计算
-        # persum2=$(echo "scale=4; ($sum2/$sum)*100" | bc)
-        # per2=$(echo "scale=4; ($value2/$sum)*100" | bc)
-        # per3=$(echo "scale=4; ($value3/$sum)*100" | bc)
-        # per4=$(echo "scale=4; ($value4/$sum)*100" | bc)
+        persum2=$(echo "scale=4; ($sum2/$sum)*100" | bc)
+        per2=$(echo "scale=4; ($value2/$sum)*100" | bc)
+        per3=$(echo "scale=4; ($value3/$sum)*100" | bc)
+        per4=$(echo "scale=4; ($value4/$sum)*100" | bc)
 
         # 添加前导零
-        # persum2=$(printf "%.4f" $persum2)
-        # per2=$(printf "%.4f" $per2)
-        # per3=$(printf "%.4f" $per3)
-        # per4=$(printf "%.4f" $per4)
+        persum2=$(printf "%.4f" $persum2)
+        per2=$(printf "%.4f" $per2)
+        per3=$(printf "%.4f" $per3)
+        per4=$(printf "%.4f" $per4)
     else
         echo "Warning: Missing values in $path"
-        # per2=0
-        # per3=0
-        # per4=0
+        per2=0
+        per3=0
+        per4=0
     fi
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4" >> RCA/RCA.geo.tsv
+    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.geo.tsv
 done
 
 for path in $(ls RCA/Normal/*.txt)
@@ -77,9 +78,10 @@ do
     name=$(basename ${m})
 
     # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.normal.location.climate.txt)
+    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.normal.location.txt)
     if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in ../Ala.normal.location.climate.txt"
+        echo "Warning: Missing location fields for $name in Ala.normal.location.txt"
+        location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
     fi
 
     # 计算第四列第二行到第四行的值的总和
@@ -112,24 +114,24 @@ do
         value4=$(echo $value4 | awk '{printf "%.10f\n", $1}')
 
         # 使用 bc 计算
-        # persum2=$(echo "scale=4; ($sum2/$sum)*100" | bc)
-        # per2=$(echo "scale=4; ($value2/$sum)*100" | bc)
-        # per3=$(echo "scale=4; ($value3/$sum)*100" | bc)
-        # per4=$(echo "scale=4; ($value4/$sum)*100" | bc)
+        persum2=$(echo "scale=4; ($sum2/$sum)*100" | bc)
+        per2=$(echo "scale=4; ($value2/$sum)*100" | bc)
+        per3=$(echo "scale=4; ($value3/$sum)*100" | bc)
+        per4=$(echo "scale=4; ($value4/$sum)*100" | bc)
 
         # 添加前导零
-        # persum2=$(printf "%.4f" $persum2)
-        # per2=$(printf "%.4f" $per2)
-        # per3=$(printf "%.4f" $per3)
-        # per4=$(printf "%.4f" $per4)
+        persum2=$(printf "%.4f" $persum2)
+        per2=$(printf "%.4f" $per2)
+        per3=$(printf "%.4f" $per3)
+        per4=$(printf "%.4f" $per4)
     else
         echo "Warning: Missing values in $path"
-        # per2=0
-        # per3=0
-        # per4=0
+        per2=0
+        per3=0
+        per4=0
     fi
 
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4" >> RCA/RCA.geo.tsv
+    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.geo.tsv
 done
