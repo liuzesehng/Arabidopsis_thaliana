@@ -67,5 +67,22 @@ export -f process_bed
 parallel -j 90 process_bed ::: $(find Abnormal_me/bismark Normal_me/bismark -name *RCA.promoter_terminator.bedGraph)
 exit 0
 
+# 提取数据
+for file in $(find Abnormal_me/bismark -name *.nameSorted.deduplicated*.bedGraph | grep -v "RCA")
+do
+    ref=$(awk -F'/' '{print $3}' <<< $file)
+    ref2=$(awk -v var="$ref" -F',' '($1 == var || $11 == var) { print $30 }' Abnormal_me/Abnormal.me.csv | uniq) 
+    tem=$(cat meth/biosample_result_me.txt | grep -A 9 "$ref2" | grep 'growth temperature="' | sed 's/.*\/growth temperature="\([^"]*\)".*/\1/')
 
+    if [ $tem == "10C" ]; then
+        echo "$file" >> meth/10C.txt
+    else
+        echo "$file" >> meth/16C.txt
+    fi
+done
+
+for file in $(find Normal_me/bismark -name *.nameSorted.deduplicated*.bedGraph | grep -v "RCA")
+do
+    echo "$file" >> meth/22C.txt
+done
 

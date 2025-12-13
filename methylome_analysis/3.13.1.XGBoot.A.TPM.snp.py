@@ -18,56 +18,83 @@ from xgboost import XGBRegressor
 output_dir = "TPM_3.4"
 os.makedirs(output_dir, exist_ok=True)
 #读取数据
-df = pd.read_csv('/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_thaliana/list/RCA3/Alt.RCA.me_snp.tsv', sep='\t')
+df = pd.read_csv('/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_thaliana/list/RCA/Alt.RCA.me_snp.tsv', sep='\t')
 
 # 检查是否还有缺失值
 df.isnull().sum()
 
 # 划分特征和目标变量
-x = df.drop(['TPM', 'α_TPM/%', 'β_TPM/%', 'β1_TPM/%', 'β2_TPM/%'], axis=1)
+x = df.drop(['Tem/℃', 'Lat', 'Long', 'alt/m', 'TPM', 'α_TPM/%', 'β_TPM/%', 'β1_TPM/%', 'β2_TPM/%'], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
 y = df['α_TPM/%']
 
+# 1. 确保 y 是数值型，无法转换的变为 NaN
+y = pd.to_numeric(y, errors='coerce')
+
+# 2. 获取 y 不为空的索引掩码
+mask = y.notna()
+
+# 3. 同步筛选 x 和 y，只保留 y 有值的行
+x = x[mask]
+y = y[mask]
+
+print(f"Samples remaining after dropping y-NaNs: {len(y)}")
+# --- 修改结束 ---
 # 检查并处理缺失值
-x = x.fillna(x.mean())
-y = y.fillna(y.mean())
+# y = y.fillna(y.mean())
 
 # 划分训练集和测试集
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
 
 # XGBoost模型参数
 params_xgb = {
-    'learning_rate': 0.02,            # 学习率
+    'learning_rate': 0.01,            # 学习率
+    'n_estimators': 600,  # 树的数量，控制模型的复杂度    
+    'max_depth': 3,  # 树的最大深度，控制模型的复杂度，防止过拟合    
+    'min_child_weight': 3,  # 节点最小权重，值越大，算法越保守，用于控制过拟合
     'booster': 'gbtree',              # 提升方法，这里使用梯度提升树（Gradient Boosting Tree）
-    'objective': 'reg:squarederror',  # 损失函数，这里使用平方误差
-    'max_leaves': 127,                # 每棵树的叶子节点数量，控制模型复杂度。较大值可以提高模型复杂度但可能导致过拟合    
+    'objective': 'reg:squarederror',  # 损失函数，这里使用平方误差  
     'verbosity': 1,                   # 控制 XGBoost 输出信息的详细程度，0表示无输出，1表示输出进度信息    
     'seed': 42,                       # 随机种子，用于重现模型的结果    
     'nthread': 8,                     # 并行运算的线程数量，-1表示使用所有可用的CPU核心    
     'colsample_bytree': 0.6,          # 每棵树随机选择的特征比例，用于增加模型的泛化能力    
-    'subsample': 0.7                  # 每次迭代时随机选择的样本比例，用于增加模型的泛化能力
+    'subsample': 0.9                  # 每次迭代时随机选择的样本比例，用于增加模型的泛化能力
 }
 
 #初始化回归模型
 model_xgb = xgb.XGBRegressor(**params_xgb)
 
-# 初始化特征选择，使用平均数大作为阈值, 可以选择其它阈值
-selector = SelectFromModel(XGBRegressor(**params_xgb), threshold='mean')
-X_train_selected = selector.fit_transform(x_train, y_train)
-X_test_selected = selector.transform(x_test)
+# --- 修改开始 ---
+# 1. 先手动训练一个模型用于特征选择 (XGBoost 原生支持 NaN)
+selection_model = XGBRegressor(**params_xgb)
+selection_model.fit(x_train, y_train)
 
-# 生成 max_leaves 的参数范围列表，从 10 到 500
-max_leaves_range = list(range(120, 130))
+# 2. 初始化特征选择
+# max_features=50: 选取前50个特征
+# threshold=-np.inf: 必须设置为负无穷，确保不进行阈值过滤，只按重要性排序取前50
+selector = SelectFromModel(selection_model, max_features=10, threshold=-np.inf, prefit=True)
+
+# 3. 应用特征选择
+X_train_selected = selector.transform(x_train.values)
+X_test_selected = selector.transform(x_test.values)
+
+#初始化回归模型
+model_xgb = xgb.XGBRegressor(**params_xgb)
+
+# 使用经过特征选择的数据集进行拟合
+model_xgb.fit(X_train_selected, y_train)
+
+# 为了让后续代码（预测、绘图等）能正常运行，将训练好的模型赋值给 best_model
+best_model = model_xgb
 
 # 定义参数网格，用于网格搜索
 param_grid = {    
-    'n_estimators': [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],  # 树的数量，控制模型的复杂度    
-    'max_depth': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],  # 树的最大深度，控制模型的复杂度，防止过拟合    
-    'min_child_weight': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],  # 节点最小权重，值越大，算法越保守，用于控制过拟合
-    'learning_rate': [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1],   # 学习率    
-    'subsample': [0.6, 0.7, 0.8, 0.9],  # 每次迭代时随机选择的样本比例，防止过拟合    
-    'colsample_bytree': [0.5, 0.6, 0.7, 0.8],  # 每棵树随机选择的特征比例，防止过拟合
-    'max_leaves': max_leaves_range,     # 每棵树的叶子节点数量，控制模型复杂度。较大值可以提高模型复杂度但可能导致过拟合
+    'n_estimators': [600],  # 树的数量，控制模型的复杂度    
+    'max_depth': [3],  # 树的最大深度，控制模型的复杂度，防止过拟合    
+    'min_child_weight': [3],  # 节点最小权重，值越大，算法越保守，用于控制过拟合
+    'learning_rate': [0.01],   # 学习率    
+    'subsample': [0.9],  # 每次迭代时随机选择的样本比例，防止过拟合    
+    'colsample_bytree': [0.6],  # 每棵树随机选择的特征比例，防止过拟合
 }
 
 #使用GridSearchCV进行网格搜索和k折交叉验证

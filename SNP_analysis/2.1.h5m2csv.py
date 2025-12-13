@@ -23,11 +23,11 @@ chr_regions = f['positions'].attrs['chr_regions']
 # Array of SNP positions for all chromosomes, each chromosome is a hash
 # with "Chr<N>" as key, and a numpy.array of positions as value. 
 snp_pos_on_chrs = [
-	{ "label": "Chr1", "chr_idx": 0, "positions": positions[chr_regions[0][0]:chr_regions[0][1]] },
-	{ "label": "Chr2", "chr_idx": 1, "positions": positions[chr_regions[1][0]:chr_regions[1][1]] },
-	{ "label": "Chr3", "chr_idx": 2, "positions": positions[chr_regions[2][0]:chr_regions[2][1]] },
-	{ "label": "Chr4", "chr_idx": 3, "positions": positions[chr_regions[3][0]:chr_regions[3][1]] },
-	{ "label": "Chr5", "chr_idx": 4, "positions": positions[chr_regions[4][0]:chr_regions[4][1]] }
+	# { "label": "Chr1", "chr_idx": 0, "positions": positions[chr_regions[0][0]:chr_regions[0][1]] },
+	{ "label": "Chr2", "chr_idx": 1, "positions": positions[chr_regions[1][0]:chr_regions[1][1]] }
+	# { "label": "Chr3", "chr_idx": 2, "positions": positions[chr_regions[2][0]:chr_regions[2][1]] },
+	# { "label": "Chr4", "chr_idx": 3, "positions": positions[chr_regions[3][0]:chr_regions[3][1]] },
+	# { "label": "Chr5", "chr_idx": 4, "positions": positions[chr_regions[4][0]:chr_regions[4][1]] }
 ]
 
 # 打开CSV文件进行写入

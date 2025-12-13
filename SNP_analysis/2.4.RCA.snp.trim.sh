@@ -1,9 +1,19 @@
 #!/bin/bash
+# 初始化列名数组
+columns=("tem")
+# 动态生成 snp_1 到 snp_104
+for i in {1..104}; do
+    columns+=("snp_$i")
+done
+
+columns+=("total" "α" "β1" "β2" "α/%" "β1/%" "β2/%")
+# 写入表头
+echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.snp.tsv
+
 #RCA数据整理
-awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β1", "β2", "α/%", "β1/%", "β2/%"; exit }' Ala.ab.location.txt > RCA/RCA.climate.tsv
 for path in $(ls RCA/Abnormal/*/*.txt)
 do    
-    # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段
+    # 使用cut命令和斜杠（/）作为分隔符，提取第3个字段
     tem=$(echo $path | cut -d'/' -f3)
     tem=${tem/C}
 
@@ -11,13 +21,25 @@ do
     m=${path/.RCA.transcript.txt/}
     name=$(basename ${m})
 
-    # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.ab.location.txt)
-    if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in Ala.ab.location.txt"
-        location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
-    fi
+    col=()
+    col+=($tem)
 
+    # 处理 snp 数据
+    p=$(awk -v var="$name" -F',' '($1 == var || $11 == var) { print $30 }' Unnormal.csv | uniq)
+
+    q=$(cat biosample_result.txt | grep -A 9 $p | grep "accession number=" | sed 's/.*\/accession number="\([^"]*\)".*/\1/')
+
+    # snp_1 到 snp_104
+    for snp in {1..104}
+    do
+        j=$(awk -v i="$snp" 'NR > 1 && NR == i + 1 {print $2}' snp/filtered_snp_matrix.csv)
+        eval snp_$snp=$(awk -v q="$q" -v j="$j" 'NR==1 {for(i=1;i<=NF;i++) if($i==q) {col=i; break}; next} col && $2==j {print $col}' snp/filtered_snp_matrix.csv)
+        if [ -z "$(eval echo '$snp_'$snp)" ]; then
+            col+=("")
+        else
+            col+=($(eval echo '$snp_'$snp))
+        fi
+    done
     # 计算第四列第二行到第四行的值的总和
     # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
     sum=$(awk 'NR==5 {print $4}' $path)
@@ -64,9 +86,10 @@ do
         per3=0
         per4=0
     fi
+    col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
 
-    # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.climate.tsv
+    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp.tsv
+    col=()
 done
 
 for path in $(ls RCA/Normal/*.txt)
@@ -77,19 +100,29 @@ do
     m=${path/.RCA.transcript.txt/}
     name=$(basename ${m})
 
-    # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.normal.location.txt)
-    if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in Ala.normal.location.txt"
-        location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
-    fi
+    col=()
+    col+=($tem)
+
+    # 处理 snp 数据
+    p=$(awk -v var="$name" -F',' '($1 == var || $11 == var) { print $30 }' Normal.csv | uniq)
+
+    q=$(awk -v var="$p" -F',' '($1 == var) {print $2}' sample.csv | awk -F'[()]' '{print $2}')
+
+    # snp_1 到 snp_104
+    for snp in {1..104}
+    do
+        j=$(awk -v i="$snp" 'NR > 1 && NR == i + 1 {print $2}' snp/filtered_snp_matrix.csv)
+        eval snp_$snp=$(awk -v q="$q" -v j="$j" 'NR==1 {for(i=1;i<=NF;i++) if($i==q) {col=i; break}; next} col && $2==j {print $col}' snp/filtered_snp_matrix.csv)
+        if [ -z "$(eval echo '$snp_'$snp)" ]; then
+            col+=("")
+        else
+            col+=($(eval echo '$snp_'$snp))
+        fi
+    done
 
     # 计算第四列第二行到第四行的值的总和
     # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
     sum=$(awk 'NR==5 {print $4}' $path)
-
-    # 计算第四列第三行到第四行的值的总和
-    sum2=$(awk 'NR>=3 && NR<=4 {sum += $4} END {print sum}' $path)
 
     # 计算第四列第二行的值
     value2=$(awk 'NR==2 {print $4}' $path)
@@ -99,6 +132,9 @@ do
 
     # 计算第四列第四行的值
     value4=$(awk 'NR==4 {print $4}' $path)
+
+    # 计算第四列第三行到第四行的值的总和
+    sum2=$(awk 'NR>=3 && NR<=4 {sum += $4} END {print sum}' $path)
 
     # 调试输出
     echo "Processing file: $path"
@@ -130,8 +166,8 @@ do
         per3=0
         per4=0
     fi
+    col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
 
-
-    # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.climate.tsv
+    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp.tsv
+    col=()
 done

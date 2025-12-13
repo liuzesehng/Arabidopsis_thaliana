@@ -1,4 +1,23 @@
 #!/bin/bash
+# 输出文件名
+output_file="meth/RCA.up_down.bed"
+
+# 起始值和结束值
+start=16568745
+end=16575692
+
+# 打开输出文件
+exec > "$output_file"
+
+# 生成内容
+for ((i=start; i<end; i++)); do
+    echo -e "NC_003071.7\t$i\t$((i+1))"
+done
+
+for file in $(find Abnormal_me/bismark Normal_me/bismark -name *RCA.promoter_terminator.processed.bedGraph)
+do
+    echo "$file" >> meth/meth.txt
+done
 
 # 定义处理每个文件对或单文件的函数
 process_bed() {
@@ -53,11 +72,5 @@ export -f process_bed
 # 使用 parallel 处理所有文件类型
 parallel -j 3 process_bed ::: CG CHG CHH
 
-exit 0 
 
-# 提取数据
-for file in $(find Abnormal_me/bismark Normal_me/bismark -name *RCA.promoter_terminator.processed.bedGraph)
-do
-    echo "$file" >> meth/meth.txt
-done
 
