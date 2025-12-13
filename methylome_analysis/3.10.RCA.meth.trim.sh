@@ -3,17 +3,17 @@
 columns=("tem")
 
 # 动态生成 CG_1 到 CG_226
-for i in {1..226}; do
+for i in {1..254}; do
     columns+=("CG_$i")
 done
 
 # 动态生成 CHG_1 到 CHG_301
-for i in {1..301}; do
+for i in {1..325}; do
     columns+=("CHG_$i")
 done
 
 # 动态生成 CHH_1 到 CHH_1379
-for i in {1..1379}; do
+for i in {1..1774}; do
     columns+=("CHH_$i")
 done
 
@@ -94,12 +94,12 @@ do
         col2+=("$tem")
 
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph1 "CG" 226 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHG" 301 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHH" 1379 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CG" 226 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHG" 301 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHH" 1379 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CG" 254 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CHG" 325 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CHH" 1774 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CG" 254 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CHG" 325 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CHH" 1774 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
 
         # 计算第四列第二行到第四行的值的总和
         # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
@@ -158,15 +158,15 @@ do
     else
         col+=("$tem")
         if [ -z "$name2" ]; then
-            for i in {1..1906}
+            for i in {1..2353}
             do
                 col+=("")
             done
         else
             # 处理 CG, CHG, CHH 数据
-            process_bedgraph "CG" 226 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHG" 301 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHH" 1379 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CG" 254 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CHG" 325 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CHH" 1774 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
         fi
 
         # 计算第四列第二行到第四行的值的总和
@@ -222,7 +222,7 @@ do
     fi
 done
 
-for path in $(ls Normal/*/*/*.txt)
+for path in $(ls RCA/Normal/*.txt)
 do
     tem=22
 
@@ -236,15 +236,15 @@ do
     name2=$(awk '$1 == "'$name'" {print $2}' meth/Ala.nor.meth.txt)
     if [ -z "$name2" ]; then
         echo "$name meth is empty"
-        for i in {1..1906}
+        for i in {1..2353}
         do
             col+=("")
         done
     else
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph "CG" 226 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHG" 301 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHH" 1379 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CG" 254 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CHG" 325 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CHH" 1774 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
     fi
 
     # 计算第四列第二行到第四行的值的总和

@@ -62,8 +62,8 @@ def objective(trial):
         'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
         'subsample': trial.suggest_float('subsample', 0.5, 1.0),
         'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
-        'reg_alpha': trial.suggest_float('reg_alpha', 1e-5, 10.0, log=True),
-        'reg_lambda': trial.suggest_float('reg_lambda', 1e-5, 10.0, log=True),
+        'reg_alpha': trial.suggest_float('reg_alpha', 1e-5, 10, log=True),
+        'reg_lambda': trial.suggest_float('reg_lambda', 1e-5, 10, log=True),
     }
         
     model = xgb.XGBRegressor(**param)
@@ -171,17 +171,22 @@ plt.savefig(f"{output_dir}/SHAP_corrected_{name_TPM}_2.0.pdf", format='pdf', bbo
 plt.show()
 plt.close()
 
-# 绘制df第二列以及以后的特征的SHAP依赖图
-for feature in df.columns[1:]:
-    if feature in x.columns:
-        # 绘制依赖图，interaction_index默认为'auto'，会自动寻找交互最强的特征
-        shap.dependence_plot(feature, shap_values_Explanation.values, x, show=False)
-        plt.axhline(y=0, color='black', linestyle='-.', linewidth=1)
-            
-        # 处理文件名中的特殊字符，例如将 '/' 替换为 '_'
-        safe_feature_name = feature.replace('/', '_').replace('\\', '_')
-        plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_2.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
-        plt.close()
+# 获取前10个最重要的特征（与summary plot中显示的一致）
+mean_abs_shap = np.abs(shap_values_numpy).mean(axis=0)
+top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
+top_10_features = x.columns[top_10_indices].tolist()
+print(f"前10个最重要的特征: {top_10_features}")
+
+# 绘制前10个最重要特征的SHAP依赖图
+for feature in top_10_features:
+    # 绘制依赖图，interaction_index默认为'auto'，会自动寻找交互最强的特征
+    shap.dependence_plot(feature, shap_values_Explanation.values, x, show=False)
+    plt.axhline(y=0, color='black', linestyle='-.', linewidth=1)
+        
+    # 处理文件名中的特殊字符，例如将 '/' 替换为 '_'
+    safe_feature_name = feature.replace('/', '_').replace('\\', '_')
+    plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_3.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
+    plt.close()
 
 
 # 可视化，绘制散点图
@@ -197,7 +202,7 @@ p = np.poly1d(z)
 plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
             label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-plt.title(f'AT rubisco activase A ratio')
+plt.title(f'AT rubisco activase B2')
 plt.xlabel('Actual Values')
 plt.ylabel('Predicted Values')
 plt.legend(loc="upper left")

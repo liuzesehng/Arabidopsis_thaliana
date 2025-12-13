@@ -52,11 +52,11 @@ process_bed() {
         cv=$(awk -v std_dev=$std_dev -v mean=$mean 'BEGIN {print (std_dev/mean) * 100}')
 
         if [ -z "$mean" ];then
-            mean=0
+            mean=""
         fi
 
         if [ -z "$cv" ];then
-            cv=0
+            cv=""
         fi
 
         echo -e "NC_003071.7\t$start\t$end\t$mean\t$cv" >> meth/$file.CV.bedGraph
