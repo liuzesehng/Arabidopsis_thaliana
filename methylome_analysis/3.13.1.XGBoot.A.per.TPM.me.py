@@ -15,7 +15,7 @@ import optuna
 name_TPM = "A_per_TPM"
 
 # 读取原始数据
-df = pd.read_csv('../RCA/Alt.me.tsv', sep='\t')
+df = pd.read_csv('../RCA/Alt.meth.tsv', sep='\t')
 
 # log转换
 cols_to_log = ['total', 'α', 'β1', 'β2']
