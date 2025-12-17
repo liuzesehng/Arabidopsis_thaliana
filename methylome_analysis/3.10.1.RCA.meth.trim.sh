@@ -20,7 +20,7 @@ done
 # 动态生成 promoter、terminator数据
 # columns+=("CG_promoter" "CG" "CG_terminator" "CHG_promoter" "CHG" "CHG_terminator" "CHH_promoter" "CHH" "CHH_terminator")
 
-columns+=("total" "α" "β1" "β2" "α/%" "β1/%" "β2/%")
+columns+=("total" "α" "β" "β1" "β2" "α/%" "β/%" "β1/%" "β2/%")
 # 写入表头
 echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.meth.tsv
 
@@ -147,8 +147,8 @@ do
             per3=0
             per4=0
         fi
-        col1+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
-        col2+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+        col1+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
+        col2+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
         echo -e "$(IFS=$'\t'; echo "${col1[*]}")" >> RCA/Alt.meth.tsv
         echo -e "$(IFS=$'\t'; echo "${col2[*]}")" >> RCA/Alt.meth.tsv
@@ -215,7 +215,7 @@ do
             per3=0
             per4=0
         fi
-        col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+        col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
         echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.meth.tsv
         col=()
@@ -293,7 +293,7 @@ do
         per3=0
         per4=0
     fi
-    col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+    col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
     echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.meth.tsv
     col=()

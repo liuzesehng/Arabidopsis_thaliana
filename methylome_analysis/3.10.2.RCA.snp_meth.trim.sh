@@ -25,7 +25,7 @@ for i in {1..104}; do
     columns+=("snp_$i")
 done
 
-columns+=("total" "α" "β1" "β2" "α/%" "β1/%" "β2/%")
+columns+=("total" "α" "β" "β1" "β2" "α/%" "β/%" "β1/%" "β2/%")
 # 写入表头
 echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.snp_meth.tsv
 
@@ -171,8 +171,8 @@ do
             per3=0
             per4=0
         fi
-        col1+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
-        col2+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+        col1+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
+        col2+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
         echo -e "$(IFS=$'\t'; echo "${col1[*]}")" >> RCA/Alt.snp_meth.tsv
         echo -e "$(IFS=$'\t'; echo "${col2[*]}")" >> RCA/Alt.snp_meth.tsv
@@ -256,7 +256,7 @@ do
             per3=0
             per4=0
         fi
-        col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+        col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
         echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp_meth.tsv
         col=()
@@ -351,7 +351,7 @@ do
         per3=0
         per4=0
     fi
-    col+=($sum $value2 $value3 $value4 $per2 $per3 $per4)
+    col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
     echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp_meth.tsv
     col=()

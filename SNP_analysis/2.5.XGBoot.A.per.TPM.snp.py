@@ -18,7 +18,7 @@ name_TPM = "A_per_TPM"
 df = pd.read_csv('../RCA/Alt.snp.tsv', sep='\t')
 
 # log转换
-cols_to_log = ['total', 'α', 'β1', 'β2']
+cols_to_log = ['total', 'α', 'β', 'β1', 'β2']
 # 确保只转换存在的列
 cols_to_transform = [col for col in cols_to_log if col in df.columns]
 
@@ -36,7 +36,7 @@ df.isnull().sum()
 #data = df.dropna()
 
 # 划分特征和目标变量
-x = df.drop(['tem', 'total', 'α', 'β1', 'β2', "α/%", "β1/%", "β2/%"], axis=1)
+x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
 y = df['α/%']
 

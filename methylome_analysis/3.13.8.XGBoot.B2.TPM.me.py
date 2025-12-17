@@ -12,13 +12,13 @@ import os
 import optuna
 
 # 定义变量名
-name_TPM = "B1_per_TPM"
+name_TPM = "B2_TPM"
 
 # 读取原始数据
 df = pd.read_csv('../RCA/Alt.meth.tsv', sep='\t')
 
 # log转换
-cols_to_log = ['total', 'α', 'β1', 'β2']
+cols_to_log = ['total', 'α', 'β', 'β1', 'β2']
 # 确保只转换存在的列
 cols_to_transform = [col for col in cols_to_log if col in df.columns]
 
@@ -36,9 +36,9 @@ df.isnull().sum()
 #data = df.dropna()
 
 # 划分特征和目标变量
-x = df.drop(['tem', 'total', 'α', 'β1', 'β2', "α/%", "β1/%", "β2/%"], axis=1)
+x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
-y = df['β1/%']
+y = df['β2']
 
 # 划分训练集和测试集
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -202,7 +202,7 @@ p = np.poly1d(z)
 plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
             label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-plt.title(f'AT rubisco activase B1 ratio')
+plt.title(f'AT rubisco activase B2')
 plt.xlabel('Actual Values')
 plt.ylabel('Predicted Values')
 plt.legend(loc="upper left")

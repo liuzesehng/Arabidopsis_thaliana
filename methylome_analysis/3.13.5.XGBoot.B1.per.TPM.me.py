@@ -15,10 +15,10 @@ import optuna
 name_TPM = "B1_per_TPM"
 
 # 读取原始数据
-df = pd.read_csv('../RCA/Alt.snp.tsv', sep='\t')
+df = pd.read_csv('../RCA/Alt.meth.tsv', sep='\t')
 
 # log转换
-cols_to_log = ['total', 'α', 'β1', 'β2']
+cols_to_log = ['total', 'α', 'β', 'β1', 'β2']
 # 确保只转换存在的列
 cols_to_transform = [col for col in cols_to_log if col in df.columns]
 
@@ -26,9 +26,9 @@ cols_to_transform = [col for col in cols_to_log if col in df.columns]
 df[cols_to_transform] = np.log1p(df[cols_to_transform])
 
 # 创建目录（如果不存在），区分不同数据集
-output_dir = f"TPM_2.5"
+output_dir = f"TPM_3.5"
 os.makedirs(output_dir, exist_ok=True)
-
+   
 # 检查是否还有缺失值
 df.isnull().sum()
 
@@ -36,7 +36,7 @@ df.isnull().sum()
 #data = df.dropna()
 
 # 划分特征和目标变量
-x = df.drop(['tem', 'total', 'α', 'β1', 'β2', "α/%", "β1/%", "β2/%"], axis=1)
+x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
 y = df['β1/%']
 
@@ -167,7 +167,7 @@ ax2.xaxis.tick_top()  # 将刻度也移动到顶部
 # 设置y轴标签
 ax1.set_ylabel('Features', fontsize=12)
 plt.tight_layout()
-plt.savefig(f"{output_dir}/SHAP_corrected_{name_TPM}_2.0.pdf", format='pdf', bbox_inches='tight')
+plt.savefig(f"{output_dir}/SHAP_corrected_{name_TPM}_3.0.pdf", format='pdf', bbox_inches='tight')
 plt.show()
 plt.close()
 
@@ -207,11 +207,10 @@ plt.xlabel('Actual Values')
 plt.ylabel('Predicted Values')
 plt.legend(loc="upper left")
 #plt.grid(True) # 添加网格
-plt.savefig(f'{output_dir}/{name_TPM}_2.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
+plt.savefig(f'{output_dir}/{name_TPM}_3.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
 plt.show()
 plt.close()
 
 
 # 保存模型
-best_model.save_model(f'{output_dir}/my_model_{name_TPM}_2.0.json')
-
+best_model.save_model(f'{output_dir}/my_model_{name_TPM}_3.0.json')

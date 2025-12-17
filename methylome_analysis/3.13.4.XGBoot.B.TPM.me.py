@@ -12,7 +12,7 @@ import os
 import optuna
 
 # 定义变量名
-name_TPM = "A_TPM"
+name_TPM = "B_TPM"
 
 # 读取原始数据
 df = pd.read_csv('../RCA/Alt.meth.tsv', sep='\t')
@@ -38,7 +38,7 @@ df.isnull().sum()
 # 划分特征和目标变量
 x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
-y = df['α']
+y = df['β']
 
 # 划分训练集和测试集
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -202,7 +202,7 @@ p = np.poly1d(z)
 plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
             label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-plt.title(f'AT rubisco activase A')
+plt.title(f'AT rubisco activase B')
 plt.xlabel('Actual Values')
 plt.ylabel('Predicted Values')
 plt.legend(loc="upper left")

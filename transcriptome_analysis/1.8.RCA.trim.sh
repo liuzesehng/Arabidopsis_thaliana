@@ -1,6 +1,6 @@
 #!/bin/bash
 #RCA数据整理
-awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β1", "β2", "α/%", "β1/%", "β2/%"; exit }' Ala.ab.location.txt > RCA/RCA.climate.tsv
+awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"; exit }' Ala.ab.location.climate.txt > RCA/RCA.climate.tsv
 for path in $(ls RCA/Abnormal/*/*.txt)
 do    
     # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段
@@ -12,9 +12,9 @@ do
     name=$(basename ${m})
 
     # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.ab.location.txt)
+    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.ab.location.climate.txt)
     if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in Ala.ab.location.txt"
+        echo "Warning: Missing location fields for $name in Ala.ab.location.climate.txt"
         location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
     fi
 
@@ -66,7 +66,7 @@ do
     fi
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.climate.tsv
+    echo -e "$tem\t$location_fields\t$sum\t$value2\t$sum2\t$value3\t$value4\t$per2\t$persum2\t$per3\t$per4" >> RCA/RCA.climate.tsv
 done
 
 for path in $(ls RCA/Normal/*.txt)
@@ -78,9 +78,9 @@ do
     name=$(basename ${m})
 
     # 获取匹配样本的位置信息（第2列及以后）
-    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.normal.location.txt)
+    location_fields=$(awk -F'\t' -v OFS='\t' -v name="$name" '$1==name { $1=""; sub(/^\t/, ""); print; exit }' Ala.normal.location.climate.txt)
     if [ -z "$location_fields" ]; then
-        echo "Warning: Missing location fields for $name in Ala.normal.location.txt"
+        echo "Warning: Missing location fields for $name in Ala.normal.location.climate.txt"
         location_fields="\t\t"  # 用适当数量的制表符填充以保持列对齐
     fi
 
@@ -133,5 +133,5 @@ do
 
 
     # 将所有数据合并成一行，并确保没有换行符
-    echo -e "$tem\t$location_fields\t$sum\t$value2\t$value3\t$value4\t$per2\t$per3\t$per4" >> RCA/RCA.climate.tsv
+    echo -e "$tem\t$location_fields\t$sum\t$value2\t$sum2\t$value3\t$value4\t$per2\t$persum2\t$per3\t$per4" >> RCA/RCA.climate.tsv
 done
