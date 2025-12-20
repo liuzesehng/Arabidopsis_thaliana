@@ -5,7 +5,7 @@ process_motifs() {
 	local file=$1
 	local dir=$(basename $file)
 	local dir=${dir/.meme/_fimo_out}
-	fimo --max-stored-scores 500000 --oc Ath_TF_binding_motifs/$dir $file rca_promoter.fasta
+	fimo --max-stored-scores 500000 --oc Ath_TF_binding_motifs/$dir $file rca.fasta
 }
 export -f process_motifs
 

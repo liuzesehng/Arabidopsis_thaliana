@@ -7,8 +7,8 @@
 GENOME_FILE="/datapool/life-gongl/zesheng/ref/Arabidopsis_thaliana/refgen/GCF_000001735.4_TAIR10.1_genomic.fa"
 CHROM="NC_003071.7"
 START="16568746"
-END="16570745"
-OUTPUT_PREFIX="rca_promoter.fasta"
+END="16575692"
+OUTPUT_PREFIX="rca.fasta"
 
 # 检查基因组文件是否存在
 if [ ! -f "$GENOME_FILE" ]; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 # total Rca data
-for file in $(ls salmon3/Abnormal/*/quant.genes.sf)
+for file in $(ls RCA/Abnormal/*/*.txt)
 do
     filename=$(awk -F'/' '{print $3}' <<< $file)
     path=$(ls RCA3/Abnormal/*/*/*/$filename*txt)
