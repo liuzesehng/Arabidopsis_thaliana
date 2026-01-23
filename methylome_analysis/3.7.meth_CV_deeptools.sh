@@ -9,7 +9,7 @@ do
 done
 conda activate deeptools
 computeMatrix scale-regions -S meth/CG.bw meth/CHG.bw meth/CHH.bw \
-                            -R gene_RCA \
+                            -R gene_RCA.bed \
                             --numberOfProcessors 10 \
                             --beforeRegionStartLength 2000 \
                             --regionBodyLength 3000 \
@@ -38,7 +38,7 @@ done
 conda activate deeptools
 
 computeMatrix scale-regions -S meth/CG.bw meth/CHG.bw meth/CHH.bw \
-                            -R gene_RCA \
+                            -R gene_RCA.bed \
                             --numberOfProcessors 10 \
                             --beforeRegionStartLength 2000 \
                             --regionBodyLength 3000 \
@@ -59,7 +59,7 @@ rm -rf meth/CG.bw meth/CHG.bw meth/CHH.bw
 exit 0
 
 computeMatrix scale-regions -S meth/CG.bw meth/CHG.bw meth/CHH.bw \
-                            -R gene_RCA \
+                            -R gene_RCA.bed \
                             --numberOfProcessors 10 \
                             --beforeRegionStartLength 2000 \
                             --regionBodyLength 3000 \
@@ -99,7 +99,7 @@ done
 exit 0
 
 computeMatrix scale-regions -S meth/CG.bw meth/CHG.bw meth/CHH.bw \
-                            -R gene_RCA \
+                            -R gene_RCA.bed \
                             --numberOfProcessors 10 \
                             --beforeRegionStartLength 2000 \
                             --regionBodyLength 3000 \

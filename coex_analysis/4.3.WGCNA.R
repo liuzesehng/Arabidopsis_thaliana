@@ -129,7 +129,7 @@ geneTree =net$dendrograms[[1]]
 #9.模块的导出
 #主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
 TOM=TOMsimilarityFromExpr(rca_total, power=12)
-modules= c("brown", "salmon")
+modules= c("brown")
 probes = colnames(rca_total)
 inModule =is.finite(match(moduleColors,modules));
 modProbes=probes[inModule] #确定保留下来的。

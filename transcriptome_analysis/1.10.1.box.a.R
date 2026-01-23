@@ -16,21 +16,16 @@ head(data)
 # 检查温度列的唯一值
 unique(data$`tem`)
 
-# 将温度列转换为因子，确保正确排序（保留所有温度）
+# 将温度列转换为因子，确保正确排序（包含10、16、22）
 data$Temperature <- factor(data$`tem`, levels = c("10", "16", "22"))
-
-# 创建用于统计分析的数据集（只包含10和16）
-data_stats <- data %>% filter(`tem` %in% c("10", "16"))
-data_stats$Temperature <- factor(data_stats$`tem`, levels = c("10", "16"))
 
 # 检查数据
 table(data$Temperature)
-table(data_stats$Temperature)
 summary(data$α..)
 
-# 统计摘要（只对10和16进行）
+# 统计摘要
 cat("\n=== 各温度组的α/%TPM统计摘要 ===\n")
-summary_stats <- data_stats %>%
+summary_stats <- data %>%
   group_by(Temperature) %>%
   summarise(
     count = n(),
@@ -46,9 +41,9 @@ summary_stats <- data_stats %>%
 
 print(summary_stats)
 
-# 进行正态性检验和方差齐性检验（只对10和16）
+# 进行正态性检验
 cat("\n=== 正态性检验 (Shapiro-Wilk test) ===\n")
-shapiro_results <- data_stats %>%
+shapiro_results <- data %>%
   group_by(Temperature) %>%
   summarise(
     shapiro_p = shapiro.test(α..)$p.value,
@@ -57,50 +52,77 @@ shapiro_results <- data_stats %>%
 print(shapiro_results)
 
 # 对残差进行正态性检验
-temp_aov <- aov(α.. ~ Temperature, data = data_stats)
+temp_aov <- aov(α.. ~ Temperature, data = data)
 cat("\n=== 残差正态性检验 ===\n")
 residuals_shapiro <- shapiro.test(residuals(temp_aov))
 cat("残差Shapiro-Wilk检验 p值:", residuals_shapiro$p.value, "\n")
 
 # 方差齐性检验 (Levene's test)
 cat("\n=== 方差齐性检验 (Levene's test) ===\n")
-levene_result <- leveneTest(α.. ~ Temperature, data = data_stats)
+levene_result <- leveneTest(α.. ~ Temperature, data = data)
 print(levene_result)
 
 # Bartlett检验 (对正态分布数据)
 cat("\n=== 方差齐性检验 (Bartlett's test) ===\n")
-bartlett_result <- bartlett.test(α.. ~ Temperature, data = data_stats)
+bartlett_result <- bartlett.test(α.. ~ Temperature, data = data)
 print(bartlett_result)
 
-# 使用 Welch's t-test (适用于方差不齐的情况)
-cat("\n=== Welch's t-test (韦尔奇 t 检验) ===\n")
-welch_result <- t.test(α.. ~ Temperature, data = data_stats, var.equal = FALSE)
-print(welch_result)
-cat("t 统计量:", welch_result$statistic, "\n")
-cat("自由度:", welch_result$parameter, "\n")
-cat("p 值:", welch_result$p.value, "\n")
-cat("95% 置信区间:", welch_result$conf.int, "\n")
+# 根据正态性和方差齐性检验结果选择合适的统计方法
+if (all(shapiro_results$shapiro_p > 0.05) && residuals_shapiro$p.value > 0.05 && levene_result$`Pr(>F)`[1] > 0.05) {
+  # 数据符合正态分布且方差齐性，使用单因素方差分析 (ANOVA)
+  cat("\n=== 单因素方差分析 (One-way ANOVA) ===\n")
+  anova_result <- aov(α.. ~ Temperature, data = data)
+  anova_summary <- summary(anova_result)
+  print(anova_summary)
+  
+  # Tukey HSD 事后检验
+  cat("\n=== Tukey HSD 多重比较检验 ===\n")
+  tukey_result <- TukeyHSD(anova_result)
+  print(tukey_result)
+  
+  # 提取p值用于标注
+  comparison_pvals <- tukey_result$Temperature[, "p adj"]
+  stat_method <- "ANOVA + Tukey HSD"
+} else {
+  # 数据不符合正态分布或方差不齐，使用 Kruskal-Wallis 检验
+  cat("\n=== Kruskal-Wallis 秩和检验 ===\n")
+  kruskal_result <- kruskal.test(α.. ~ Temperature, data = data)
+  print(kruskal_result)
+  
+  # Dunn's test 事后检验
+  cat("\n=== Dunn's 多重比较检验 ===\n")
+  dunn_result <- dunn.test(data$α.., data$Temperature, method="bonferroni")
+  
+  # 提取p值用于标注
+  comparison_pvals <- dunn_result$P.adjusted
+  stat_method <- "Kruskal-Wallis + Dunn's test"
+}
 
-# 根据 Welch's t-test 结果确定显著性标记
-welch_annotation <- ifelse(welch_result$p.value < 0.001, "***",
-                           ifelse(welch_result$p.value < 0.01, "**",
-                                 ifelse(welch_result$p.value < 0.05, "*", "ns")))
+cat("\n使用的统计方法:", stat_method, "\n")
 
-# 创建箱线图（包含所有温度10、16、22）
+# 确定显著性标记
+get_significance <- function(p) {
+  ifelse(p < 0.001, "***",
+         ifelse(p < 0.01, "**",
+                ifelse(p < 0.05, "*", "ns")))
+}
+
+# 创建箱线图（包含温度10、16、22）
 p <- ggplot(data, aes(x = Temperature, y = α.., fill = Temperature)) +
   # 添加箱须末端标记（上下边缘）
   stat_boxplot(geom = "errorbar", width = 0.2, position = position_dodge(width = 0.5)) +
   # 标准的 geom_boxplot，它会画出箱体和简洁的箱须
-  geom_boxplot(alpha = 1, outlier.alpha = 0.6, position = position_dodge(width = 0.5), 
-               width = 0.3) +
-  geom_jitter(width = 0.2, alpha = 0.3, size = 0.5) +
-  scale_fill_manual(values = c("10" = "blue", "16" = "yellow", "22" = "red")) +
-  # 添加显著性标记（只标注10和16之间）
-  geom_signif(comparisons = list(c("10", "16")),
-              annotations = welch_annotation,
-              y_position = c(max(data$α..) * 1.1),
+  geom_boxplot(alpha = 1, outlier.shape = 16, outlier.size = 1, 
+               position = position_dodge(width = 0.5), width = 0.5) +
+  scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
+  # 添加显著性标记
+  geom_signif(comparisons = list(c("10", "16"), c("16", "22"), c("10", "22")),
+              annotations = get_significance(comparison_pvals),
+              y_position = c(max(data$α.., na.rm = TRUE) * 1.1, 
+                           max(data$α.., na.rm = TRUE) * 1.2,
+                           max(data$α.., na.rm = TRUE) * 1.3),
               tip_length = 0.02,
-              textsize = 6) +
+              textsize = 5) +
   labs(
     y = "a/%",
     fill = "Tem/°C"
@@ -138,9 +160,9 @@ print(p)
 ggsave("temperature_a_per_tpm_boxplot.pdf", plot = p, width = 12, height = 9, dpi = 1200)
 
 
-# 统计摘要（只对10和16进行）
+# 统计摘要
 cat("\n=== 各温度组的αTPM统计摘要 ===\n")
-summary_stats <- data_stats %>%
+summary_stats <- data %>%
   group_by(Temperature) %>%
   summarise(
     count = n(),
@@ -156,59 +178,81 @@ summary_stats <- data_stats %>%
 
 print(summary_stats)
 
-# 进行正态性检验和方差齐性检验（只对10和16）
+# 进行正态性检验
 cat("\n=== 正态性检验 (Shapiro-Wilk test) ===\n")
-shapiro_results <- data_stats %>%
+shapiro_results2 <- data %>%
   group_by(Temperature) %>%
   summarise(
     shapiro_p = shapiro.test(α)$p.value,
     .groups = 'drop'
   )
-print(shapiro_results)
+print(shapiro_results2)
 
 # 对残差进行正态性检验
-temp_aov <- aov(α ~ Temperature, data = data_stats)
+temp_aov2 <- aov(α ~ Temperature, data = data)
 cat("\n=== 残差正态性检验 ===\n")
-residuals_shapiro <- shapiro.test(residuals(temp_aov))
-cat("残差Shapiro-Wilk检验 p值:", residuals_shapiro$p.value, "\n")
+residuals_shapiro2 <- shapiro.test(residuals(temp_aov2))
+cat("残差Shapiro-Wilk检验 p值:", residuals_shapiro2$p.value, "\n")
 
 # 方差齐性检验 (Levene's test)
 cat("\n=== 方差齐性检验 (Levene's test) ===\n")
-levene_result <- leveneTest(α ~ Temperature, data = data_stats)
-print(levene_result)
+levene_result2 <- leveneTest(α ~ Temperature, data = data)
+print(levene_result2)
 
 # Bartlett检验 (对正态分布数据)
 cat("\n=== 方差齐性检验 (Bartlett's test) ===\n")
-bartlett_result <- bartlett.test(α ~ Temperature, data = data_stats)
-print(bartlett_result)
+bartlett_result2 <- bartlett.test(α ~ Temperature, data = data)
+print(bartlett_result2)
 
-# 使用 Wilcoxon 秩和检验 (Mann-Whitney U test) - 适用于非正态分布数据
-cat("\n=== Wilcoxon 秩和检验 (Mann-Whitney U test) ===\n")
-wilcox_result <- wilcox.test(α ~ Temperature, data = data_stats, exact = FALSE)
-print(wilcox_result)
-cat("W 统计量:", wilcox_result$statistic, "\n")
-cat("p 值:", wilcox_result$p.value, "\n")
+# 根据正态性和方差齐性检验结果选择合适的统计方法
+if (all(shapiro_results2$shapiro_p > 0.05) && residuals_shapiro2$p.value > 0.05 && levene_result2$`Pr(>F)`[1] > 0.05) {
+  # 数据符合正态分布且方差齐性，使用单因素方差分析 (ANOVA)
+  cat("\n=== 单因素方差分析 (One-way ANOVA) ===\n")
+  anova_result2 <- aov(α ~ Temperature, data = data)
+  anova_summary2 <- summary(anova_result2)
+  print(anova_summary2)
+  
+  # Tukey HSD 事后检验
+  cat("\n=== Tukey HSD 多重比较检验 ===\n")
+  tukey_result2 <- TukeyHSD(anova_result2)
+  print(tukey_result2)
+  
+  # 提取p值用于标注
+  comparison_pvals2 <- tukey_result2$Temperature[, "p adj"]
+  stat_method2 <- "ANOVA + Tukey HSD"
+} else {
+  # 数据不符合正态分布或方差不齐，使用 Kruskal-Wallis 检验
+  cat("\n=== Kruskal-Wallis 秩和检验 ===\n")
+  kruskal_result2 <- kruskal.test(α ~ Temperature, data = data)
+  print(kruskal_result2)
+  
+  # Dunn's test 事后检验
+  cat("\n=== Dunn's 多重比较检验 ===\n")
+  dunn_result2 <- dunn.test(data$α, data$Temperature, method="bonferroni")
+  
+  # 提取p值用于标注
+  comparison_pvals2 <- dunn_result2$P.adjusted
+  stat_method2 <- "Kruskal-Wallis + Dunn's test"
+}
 
-# 根据 Wilcoxon 检验结果确定显著性标记
-wilcox_annotation <- ifelse(wilcox_result$p.value < 0.001, "***",
-                            ifelse(wilcox_result$p.value < 0.01, "**",
-                                  ifelse(wilcox_result$p.value < 0.05, "*", "ns")))
+cat("\n使用的统计方法:", stat_method2, "\n")
 
-# 创建箱线图（包含所有温度10、16、22）
+# 创建箱线图（包含温度10、16、22）
 p <- ggplot(data, aes(x = Temperature, y = α, fill = Temperature)) +
   # 添加箱须末端标记（上下边缘）
   stat_boxplot(geom = "errorbar", width = 0.2, position = position_dodge(width = 0.5)) +
   # 标准的 geom_boxplot，它会画出箱体和简洁的箱须
-  geom_boxplot(alpha = 1, outlier.alpha = 0.6, position = position_dodge(width = 0.5), 
-               width = 0.3) +
-  geom_jitter(width = 0.2, alpha = 0.3, size = 0.5) +
-  scale_fill_manual(values = c("10" = "blue", "16" = "yellow", "22" = "red")) +
-  # 添加显著性标记（只标注10和16之间）
-  geom_signif(comparisons = list(c("10", "16")),
-              annotations = wilcox_annotation,
-              y_position = c(max(data$α) * 1.1),
+  geom_boxplot(alpha = 0.8, outlier.shape = 16, outlier.size = 1, 
+               position = position_dodge(width = 0.5), width = 0.5) +
+  scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
+  # 添加显著性标记
+  geom_signif(comparisons = list(c("10", "16"), c("16", "22"), c("10", "22")),
+              annotations = get_significance(comparison_pvals2),
+              y_position = c(max(data$α, na.rm = TRUE) * 1.1, 
+                           max(data$α, na.rm = TRUE) * 1.2,
+                           max(data$α, na.rm = TRUE) * 1.3),
               tip_length = 0.02,
-              textsize = 6) +
+              textsize = 5) +
   labs(
     y = "a/TPM",
     fill = "Tem/°C"

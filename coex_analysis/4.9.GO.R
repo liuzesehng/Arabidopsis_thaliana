@@ -90,14 +90,18 @@ create_bubble_plot <- function(enrich_result, output_prefix, ontology) {
 
 # 读取基因列表并执行富集分析
 # all
-genes <- read.delim('total/all.gene_id.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, 'total/all.gene_id')
+genes <- read.delim('total/CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes, 'total/total.gene_id')
 
-# a
-genes <- read.delim('a/a.gene_id.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, 'a/a.gene_id')
+# 10C
+genes <- read.delim('10C/10C.CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes, '10C/10C.gene_id')
 
-# b
-genes <- read.delim('b/b.gene_id.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, 'b/b.gene_id')
+# 16C
+genes <- read.delim('16C/16C.CytoscapeInput-nodes-red.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes, '16C/16C.gene_id')
+# 22C
+genes <- read.delim('22C/22C.CytoscapeInput-nodes-green.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes, '22C/22C.gene_id')
+
 

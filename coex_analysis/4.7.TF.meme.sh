@@ -9,7 +9,7 @@ process_motifs() {
 }
 export -f process_motifs
 
-ls Ath_TF_binding_motifs_individual/*.meme | parallel -j 64 process_motifs {}
+ls Ath_TF_binding_motifs_individual/*.meme | parallel -j 32 process_motifs {}
 
 # 合并所有fimo，过滤空行和p值小于0.00001的记录
 cat Ath_TF_binding_motifs/*fimo_out/fimo.tsv | awk 'NF>0 && $8<0.00001' > all.fimo.out.filt

@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# 使用samtools提取启动子序列
-# 位置：NC_003071.7:16568745-16570745
+# 使用samtools提取启动子序列和基因序列
+# 位置：NC_003071.7:16573693-16575692
 
 # 设置变量
 GENOME_FILE="/datapool/life-gongl/zesheng/ref/Arabidopsis_thaliana/refgen/GCF_000001735.4_TAIR10.1_genomic.fa"
 CHROM="NC_003071.7"
-START="16568746"
+START="16573693"
 END="16575692"
 OUTPUT_PREFIX="rca.fasta"
 

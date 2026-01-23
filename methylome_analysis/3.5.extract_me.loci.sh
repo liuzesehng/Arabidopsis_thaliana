@@ -1,7 +1,7 @@
 #!/bin/bash
 echo -e "NC_003071.7\t16570745\t16573692" > gene_RCA
-echo -e "NC_003071.7\t16568745\t16570745" >> gene_RCA_promoter
-echo -e "NC_003071.7\t16573692\t16575692" >> gene_RCA_terminator
+echo -e "NC_003071.7\t16568745\t16570745" >> gene_RCA_terminator
+echo -e "NC_003071.7\t16573692\t16575692" >> gene_RCA_promoter
 # 定义处理每个文件对或单文件的函数
 process_bw() {
     local bw="$1"
@@ -9,9 +9,9 @@ process_bw() {
 	pref=${bw/.bw/}
 
     bigWigToBedGraph $bw $pref.bedGraph &&
-    #awk '$1 == "NC_003071.7" && $2 >= 16568745 && $2 <= 16570745 && $3 <= 16570745' $pref.bedGraph > $pref.RCA.promoter.bedGraph
+    #awk '$1 == "NC_003071.7" && $2 >= 16568745 && $2 <= 16570745 && $3 <= 16570745' $pref.bedGraph > $pref.RCA.terminator.bedGraph
     #awk '$1 == "NC_003071.7" && $2 >= 16570745 && $2 <= 16573692 && $3 <= 16573692' $pref.bedGraph > $pref.RCA.bedGraph
-    #awk '$1 == "NC_003071.7" && $2 >= 16573692 && $2 <= 16575692 && $3 <= 16575692' $pref.bedGraph > $pref.RCA.terminator.bedGraph
+    #awk '$1 == "NC_003071.7" && $2 >= 16573692 && $2 <= 16575692 && $3 <= 16575692' $pref.bedGraph > $pref.RCA.promoter.bedGraph
     awk '$1 == "NC_003071.7" && $2 >= 16568745 && $2 <= 16575692 && $3 <= 16575692' $pref.bedGraph > $pref.RCA.promoter_terminator.bedGraph
 
 }

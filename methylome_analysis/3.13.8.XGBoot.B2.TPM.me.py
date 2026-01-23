@@ -53,7 +53,7 @@ def objective(trial):
         # 'device': 'cuda',                 # 使用 GPU 加速（已注释）
         'verbosity': 0,
         'seed': 42,
-        'nthread': 4,
+        'nthread': 16,
             
         # 核心调参区间
         'n_estimators': trial.suggest_int('n_estimators', 100, 2000),
@@ -81,7 +81,7 @@ def objective(trial):
 print(f"Starting Optuna optimization...")
 study = optuna.create_study(direction='maximize')  # 最大化 R²
 # --- 开启 Optuna 并行 ---
-study.optimize(objective, n_trials=500, n_jobs=16, show_progress_bar=True)
+study.optimize(objective, n_trials=500, n_jobs=4, show_progress_bar=True)
 
 # 输出最优参数
 print(f"Best parameters found: ", study.best_params)
@@ -171,11 +171,48 @@ plt.savefig(f"{output_dir}/SHAP_corrected_{name_TPM}_3.0.pdf", format='pdf', bbo
 plt.show()
 plt.close()
 
-# 获取前10个最重要的特征（与summary plot中显示的一致）
+# 获取前10个最重要的特征
 mean_abs_shap = np.abs(shap_values_numpy).mean(axis=0)
 top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
 top_10_features = x.columns[top_10_indices].tolist()
+
+# 第一个最重要特征的贡献度
+first_feature_contribution = mean_abs_shap[top_10_indices[0]]
+total_contribution = mean_abs_shap.sum()
+first_feature_percentage = (first_feature_contribution / total_contribution) * 100
+
 print(f"前10个最重要的特征: {top_10_features}")
+print(f"第一个最重要特征: {top_10_features[0]}")
+print(f"第一个特征的平均|SHAP|值: {first_feature_contribution:.6f}")
+print(f"所有特征的平均|SHAP|值总和: {total_contribution:.6f}")
+print(f"第一个特征贡献度百分比: {first_feature_percentage:.2f}%")
+
+# 计算累计贡献度达到80%的特征
+sorted_indices = np.argsort(mean_abs_shap)[::-1]  # 从高到低排序
+sorted_contributions = mean_abs_shap[sorted_indices]
+cumulative_contribution = np.cumsum(sorted_contributions) / total_contribution * 100
+
+# 找到累计贡献度达到80%的特征索引
+threshold_80_idx = np.where(cumulative_contribution >= 80)[0][0]
+top_80_features = x.columns[sorted_indices[:threshold_80_idx + 1]].tolist()
+top_80_contribution = cumulative_contribution[threshold_80_idx]
+
+print(f"\n累计贡献度达到80%的特征数量: {len(top_80_features)}")
+print(f"累计贡献度: {top_80_contribution:.2f}%")
+print(f"特征列表: {top_80_features}")
+
+# 将SHAP贡献度信息追加到文件
+with open(f'{output_dir}/{name_TPM}_optimization_results.txt', 'a', encoding='utf-8') as f:
+    f.write(f"\nSHAP特征重要性分析:\n")
+    f.write(f"  前10个最重要特征: {', '.join(top_10_features)}\n")
+    f.write(f"  第一个最重要特征: {top_10_features[0]}\n")
+    f.write(f"  第一个特征的平均|SHAP|值: {first_feature_contribution:.6f}\n")
+    f.write(f"  所有特征的平均|SHAP|值总和: {total_contribution:.6f}\n")
+    f.write(f"  第一个特征贡献度百分比: {first_feature_percentage:.2f}%\n")
+    f.write(f"\n  累计贡献度达到80%的特征:\n")
+    f.write(f"    特征数量: {len(top_80_features)}\n")
+    f.write(f"    累计贡献度: {top_80_contribution:.2f}%\n")
+    f.write(f"    特征列表: {', '.join(top_80_features)}\n")
 
 # 绘制前10个最重要特征的SHAP依赖图
 for feature in top_10_features:
