@@ -219,4 +219,68 @@ for (name in names(tf_files)) {
   }
 }
 
+cat("\n")
+
+# ========================================
+# 处理 TF_in_module.txt 文件
+# ========================================
+cat("正在处理 TF_in_module.txt 文件...\n")
+
+# 定义需要处理的文件
+tf_module_files <- list(
+  "total" = file.path("total", "TF_in_module.txt"),
+  "22C" = file.path("22C", "TF_in_module.txt"),
+  "10C" = file.path("10C", "TF_in_module.txt")
+)
+
+for (name in names(tf_module_files)) {
+  tf_module_file <- tf_module_files[[name]]
+  
+  # 检查文件是否存在
+  if (file.exists(tf_module_file)) {
+    cat(sprintf("  处理文件: %s\n", tf_module_file))
+    
+    # 读取文件（制表符分隔）
+    tf_module_data <- read.table(tf_module_file, header = TRUE, sep = "\t", 
+                                 stringsAsFactors = FALSE, comment.char = "",
+                                 quote = "", fill = TRUE)
+    
+    # 检查第二列是否存在
+    if (ncol(tf_module_data) > 1) {
+      # 提取第二列的基因ID
+      gene_ids <- tf_module_data[, 2]
+      
+      # 进行注释（包含TF家族信息）
+      annotations <- annotate_genes_with_tf_family(gene_ids, tf_list_file)
+      
+      # 将注释结果与原始数据合并
+      colnames(tf_module_data)[2] <- "Gene_ID"  # 重命名第二列以便合并
+      
+      annotated_data <- merge(tf_module_data, annotations, 
+                             by = "Gene_ID", 
+                             all.x = TRUE, 
+                             sort = FALSE)
+      
+      # 调整列的顺序：Gene_ID, Symbol, Family, Gene_Name, GO_Term, GO_Name
+      final_cols <- c("Gene_ID", "Symbol", "Family", "Gene_Name", "GO_Term", "GO_Name")
+      annotated_data <- annotated_data[, final_cols]
+      
+      # 保存注释后的文件
+      output_file <- file.path(dirname(tf_module_file), 
+                              paste0(name, ".TF_in_module.annotated.txt"))
+      write.table(annotated_data, output_file, 
+                 row.names = FALSE, sep = "\t", quote = FALSE)
+      
+      cat(sprintf("    -> 保存到: %s\n", output_file))
+      cat(sprintf("    -> 注释了 %d 个基因\n", nrow(annotated_data)))
+    } else {
+      cat(sprintf("    警告: 文件为空或没有列\n"))
+    }
+  } else {
+    cat(sprintf("  文件不存在，跳过: %s\n", tf_module_file))
+  }
+}
+
 cat("\n所有文件处理完成！\n")
+
+

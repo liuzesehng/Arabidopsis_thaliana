@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 为feature_data_extraction文件夹下的CSV文件添加TF motif位置信息

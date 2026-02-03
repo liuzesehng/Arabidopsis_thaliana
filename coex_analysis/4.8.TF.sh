@@ -1,7 +1,21 @@
 #!/bin/bash
+# 提取模块中的转录因子（TF）
+awk 'NR==FNR {a[$1]; next} $2 in a' total/CytoscapeInput-nodes-brown.txt Ath_TF_list.txt > total/TF_in_module.txt
+sort -k2,2 total/TF_in_module.txt -o total/TF_in_module.txt
+awk 'NR==FNR {a[$1]; next} $2 in a' 10C/10C.CytoscapeInput-nodes-brown.txt Ath_TF_list.txt > 10C/TF_in_module.txt
+sort -k2,2 10C/TF_in_module.txt -o 10C/TF_in_module.txt
+awk 'NR==FNR {a[$1]; next} $2 in a' 16C/16C.CytoscapeInput-nodes-red.txt Ath_TF_list.txt > 16C/TF_in_module.txt
+sort -k2,2 16C/TF_in_module.txt -o 16C/TF_in_module.txt
+awk 'NR==FNR {a[$1]; next} $2 in a' 22C/22C.CytoscapeInput-nodes-green.txt Ath_TF_list.txt > 22C/TF_in_module.txt
+sort -k2,2 22C/TF_in_module.txt -o 22C/TF_in_module.txt
 
-# all.fimo.out.filt
+# 在第一行前添加标题行
+sed -i '1iTF_ID\tGene_ID\tTF_Family' total/TF_in_module.txt
+sed -i '1iTF_ID\tGene_ID\tTF_Family' 10C/TF_in_module.txt
+sed -i '1iTF_ID\tGene_ID\tTF_Family' 16C/TF_in_module.txt
+sed -i '1iTF_ID\tGene_ID\tTF_Family' 22C/TF_in_module.txt
 
+# all.fimo.out.filt 文件包含所有基因的TF结合位点信息
 awk 'NR==FNR {a[$1]; next} $1 in a' total/CytoscapeInput-nodes-brown.txt all.fimo.out.filt > total/gene.TF_ids.txt
 awk 'NR==FNR {a[$1]; next} $1 in a' 10C/10C.CytoscapeInput-nodes-brown.txt all.fimo.out.filt > 10C/gene.TF_ids.txt
 awk 'NR==FNR {a[$1]; next} $1 in a' 16C/16C.CytoscapeInput-nodes-red.txt all.fimo.out.filt > 16C/gene.TF_ids.txt

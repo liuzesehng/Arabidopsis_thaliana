@@ -250,11 +250,11 @@ plot_heatmap <- function(sites_data, alt_data, output_file,
     site_names <- sites_data$site
   }
   
-  # 限制位点数量
-  if (length(site_names) > max_sites) {
-    cat("位点数量过多(", length(site_names), "), 仅显示前", max_sites, "个最显著的位点\n")
-    site_names <- site_names[1:max_sites]
-  }
+  # # 限制位点数量
+  # if (length(site_names) > max_sites) {
+  #   cat("位点数量过多(", length(site_names), "), 仅显示前", max_sites, "个最显著的位点\n")
+  #   site_names <- site_names[1:max_sites]
+  # }
   
   # 准备热图矩阵
   heatmap_matrix <- matrix(NA, nrow = length(site_names), ncol = 0)
@@ -322,8 +322,10 @@ plot_combined_heatmap <- function(all_sig_sites, alt_data, output_file, max_site
     if (!is.null(sites) && nrow(sites) > 0) {
       # 按P值排序并限制数量
       sites <- sites[order(sites$p_value), ]
-      n_sites <- min(max_sites_per_type, nrow(sites))
-      selected_sites <- as.character(sites$site[1:n_sites])
+      # n_sites <- min(max_sites_per_type, nrow(sites))
+      # selected_sites <- as.character(sites$site[1:n_sites])
+      n_sites <- nrow(sites)
+      selected_sites <- as.character(sites$site)
       
       all_site_names <- c(all_site_names, selected_sites)
       feature_annotations <- c(feature_annotations, rep(feature_name, n_sites))

@@ -82,6 +82,7 @@ create_bubble_plot <- function(enrich_result, output_prefix, ontology) {
   
   # 保存图片 - 仅保存PDF格式
   output_file <- paste0(gsub("\\.txt$", "", output_prefix), ".", ontology, ".bubble_plot.pdf")
+  # ggsave(output_file, plot = p, width = 12, height = 14, dpi = 1200)
   ggsave(output_file, plot = p, width = 12, height = 9, dpi = 1200)
   
   cat(paste("气泡图已保存:", output_file, "\n"))
@@ -92,6 +93,8 @@ create_bubble_plot <- function(enrich_result, output_prefix, ontology) {
 # all
 genes <- read.delim('total/CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, 'total/total.gene_id')
+genes_module <- read.delim('total/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_module, 'total/total.gene_id_TF')
 
 # 10C
 genes <- read.delim('10C/10C.CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
@@ -100,8 +103,11 @@ perform_enrichment(genes, '10C/10C.gene_id')
 # 16C
 genes <- read.delim('16C/16C.CytoscapeInput-nodes-red.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, '16C/16C.gene_id')
+
 # 22C
 genes <- read.delim('22C/22C.CytoscapeInput-nodes-green.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, '22C/22C.gene_id')
+genes_module <- read.delim('22C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_module, '22C/22C.gene_id_TF')
 
 
