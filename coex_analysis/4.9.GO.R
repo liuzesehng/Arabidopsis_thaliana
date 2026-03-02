@@ -91,23 +91,43 @@ create_bubble_plot <- function(enrich_result, output_prefix, ontology) {
 
 # 读取基因列表并执行富集分析
 # all
-genes <- read.delim('total/CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+genes <- read.delim('total/yellow_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, 'total/total.gene_id')
 genes_module <- read.delim('total/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
 perform_enrichment(genes_module, 'total/total.gene_id_TF')
+genes_negative <- read.delim('total/negative_grey_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes_negative, 'total/total.gene_id_negative')
+genes_negative_module <- read.delim('total/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_negative_module, 'total/total.gene_id_negative_TF')
 
 # 10C
-genes <- read.delim('10C/10C.CytoscapeInput-nodes-brown.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+genes <- read.delim('10C/10C.blue_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, '10C/10C.gene_id')
+genes_module <- read.delim('10C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_module, '10C/10C.gene_id_TF')
+genes_negative <- read.delim('10C/10C.negative_grey_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes_negative, '10C/10C.gene_id_negative')
+genes_negative_module <- read.delim('10C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_negative_module, '10C/10C.gene_id_negative_TF')
 
 # 16C
-genes <- read.delim('16C/16C.CytoscapeInput-nodes-red.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+genes <- read.delim('16C/16C.blue_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, '16C/16C.gene_id')
+genes_module <- read.delim('16C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_module, '16C/16C.gene_id_TF')
+genes_negative <- read.delim('16C/16C.negative_pink_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes_negative, '16C/16C.gene_id_negative')
+# genes_negative_module <- read.delim('16C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_negative_module, '16C/16C.gene_id_negative_TF')
 
 # 22C
-genes <- read.delim('22C/22C.CytoscapeInput-nodes-green.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+genes <- read.delim('22C/22C.yellow_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes, '22C/22C.gene_id')
 genes_module <- read.delim('22C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
 perform_enrichment(genes_module, '22C/22C.gene_id_TF')
+genes_negative <- read.delim('22C/22C.negative_black_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+perform_enrichment(genes_negative, '22C/22C.gene_id_negative')
+genes_negative_module <- read.delim('22C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+perform_enrichment(genes_negative_module, '22C/22C.gene_id_negative_TF')
 
 

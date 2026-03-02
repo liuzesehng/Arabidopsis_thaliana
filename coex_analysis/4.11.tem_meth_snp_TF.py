@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-分析summary_table文件中的位点与TF motif区域的关系
+分析intersection.csv文件中的位点与TF motif区域的关系
 """
 
 import pandas as pd
@@ -10,82 +10,131 @@ from pathlib import Path
 
 # 设置基础路径
 BASE_DIR = Path("/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_thaliana")
-RCA_DIR = BASE_DIR / "list/RCA"
+ANALYSIS_DIR = BASE_DIR / "list/xgboot/TPM_4.5/feature_analysis"
 FEATURE_DIR = BASE_DIR / "list/xgboot/TPM_4.5/feature_data_extraction"
-TF_FILE = BASE_DIR / "list/coex2/total/gene.TF_ids.txt"
 
-# 定义要处理的文件夹
-FOLDERS = ["Scoupled_specific", "Sexpr_only", "Ssplice_only"]
+# TF文件列表（正样本和负样本）
+TF_FILES = [
+    BASE_DIR / "list/coex2/total/gene.TF_ids.txt",
+    BASE_DIR / "list/coex2/10C/gene.TF_ids.txt",
+    BASE_DIR / "list/coex2/16C/gene.TF_ids.txt",
+    BASE_DIR / "list/coex2/22C/gene.TF_ids.txt",
+    BASE_DIR / "list/coex2/total/gene.TF_negative_ids.txt",
+    BASE_DIR / "list/coex2/10C/gene.TF_negative_ids.txt",
+    BASE_DIR / "list/coex2/16C/gene.TF_negative_ids.txt",
+    BASE_DIR / "list/coex2/22C/gene.TF_negative_ids.txt",
+]
 
 # 染色体名称映射 (NC_xxx -> Chr格式)
 CHR_MAPPING = {
+    'NC_003070.9': 'Chr1',
     'NC_003071.7': 'Chr2',
+    'NC_003074.8': 'Chr3',
+    'NC_003075.7': 'Chr4',
+    'NC_003076.8': 'Chr5',
 }
 
-def read_tf_data(tf_file):
+# 所有可能的feature_data_extraction子文件夹
+FEATURE_FOLDERS = ["A_per_TPM", "A_TPM", "B_per_TPM", "B_TPM", "total_TPM"]
+
+def read_all_tf_data(tf_files):
     """
-    读取TF motif数据文件
+    读取多个TF motif数据文件并合并
     返回包含motif_id, chr, start, stop的DataFrame
     """
-    print(f"读取TF文件: {tf_file}")
-    df = pd.read_csv(tf_file, sep='\t')
-    # 选择需要的列并重命名
-    df = df[['motif_id', 'sequence_name', 'start', 'stop']].copy()
-    df.rename(columns={'sequence_name': 'chr'}, inplace=True)
+    all_dfs = []
     
-    # 转换染色体名称
-    df['chr'] = df['chr'].map(CHR_MAPPING)
-    # 删除未映射的染色体
-    df = df.dropna(subset=['chr'])
+    for tf_file in tf_files:
+        if not tf_file.exists():
+            print(f"警告: TF文件不存在 {tf_file}")
+            continue
+        
+        print(f"读取TF文件: {tf_file}")
+        try:
+            df = pd.read_csv(tf_file, sep='\t')
+            # 选择需要的列并重命名
+            df = df[['motif_id', 'sequence_name', 'start', 'stop']].copy()
+            df.rename(columns={'sequence_name': 'chr'}, inplace=True)
+            
+            # 转换染色体名称
+            df['chr'] = df['chr'].map(CHR_MAPPING)
+            # 删除未映射的染色体
+            df = df.dropna(subset=['chr'])
+            
+            print(f"  读取了 {len(df)} 个TF motif记录")
+            all_dfs.append(df)
+        except Exception as e:
+            print(f"  错误: 读取文件失败 {tf_file.name}: {e}")
     
-    print(f"读取了 {len(df)} 个TF motif记录")
-    print(f"染色体分布: {df['chr'].value_counts().to_dict()}")
-    return df
+    if not all_dfs:
+        print("错误: 没有成功读取任何TF文件！")
+        return pd.DataFrame(columns=['motif_id', 'chr', 'start', 'stop'])
+    
+    # 合并所有数据并去重
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    combined_df = combined_df.drop_duplicates()
+    
+    print(f"\n总计读取了 {len(combined_df)} 个TF motif记录（去重后）")
+    print(f"染色体分布: {combined_df['chr'].value_counts().to_dict()}")
+    return combined_df
 
-def read_feature_positions(folder_name, feature_type):
+def load_all_feature_positions():
     """
-    从feature_data_extraction文件夹读取位置信息
-    
-    Parameters:
-    -----------
-    folder_name: str, 文件夹名称
-    feature_type: str, 特征类型 (CG, CHG, CHH, SNP)
-    
-    Returns:
-    --------
-    DataFrame with columns: Site_ID, chr, start, end
+    加载所有feature_data_extraction文件夹中的位置信息
+    返回dict: {Site_ID: {'chr': chr, 'start': start, 'end': end}}
     """
-    if feature_type.upper() == 'SNP':
-        file_path = FEATURE_DIR / folder_name / f"{folder_name}_snp_data.csv"
-    else:
-        file_path = FEATURE_DIR / folder_name / f"{folder_name}_{feature_type}_data.csv"
+    print("\n加载所有特征位置数据...")
+    all_positions = {}
     
-    if not file_path.exists():
-        print(f"警告: 文件不存在 {file_path}")
-        return None
+    for folder in FEATURE_FOLDERS:
+        folder_path = FEATURE_DIR / folder
+        if not folder_path.exists():
+            print(f"  警告: 文件夹不存在 {folder_path}")
+            continue
+        
+        print(f"  读取文件夹: {folder}")
+        
+        # 读取每种类型的数据
+        for feature_type in ['CG', 'CHG', 'CHH', 'SNP']:
+            if feature_type == 'SNP':
+                file_path = folder_path / f"{folder}_snp_data.csv"
+            else:
+                file_path = folder_path / f"{folder}_{feature_type}_data.csv"
+            
+            if not file_path.exists():
+                continue
+            
+            try:
+                df = pd.read_csv(file_path)
+                
+                if feature_type == 'SNP':
+                    # SNP文件格式: Feature,#Chromosome,Position,...
+                    if 'Feature' in df.columns and '#Chromosome' in df.columns and 'Position' in df.columns:
+                        for _, row in df.iterrows():
+                            site_id = row['Feature']
+                            if site_id not in all_positions:
+                                all_positions[site_id] = {
+                                    'chr': row['#Chromosome'],
+                                    'start': row['Position'],
+                                    'end': row['Position']
+                                }
+                else:
+                    # 甲基化文件格式: Feature,chr,start,end,...
+                    if 'Feature' in df.columns and 'chr' in df.columns and 'start' in df.columns:
+                        for _, row in df.iterrows():
+                            site_id = row['Feature']
+                            if site_id not in all_positions:
+                                # 甲基化使用start+1
+                                all_positions[site_id] = {
+                                    'chr': row['chr'],
+                                    'start': row['start'] + 1,
+                                    'end': row['start'] + 1
+                                }
+            except Exception as e:
+                print(f"    警告: 读取文件失败 {file_path.name}: {e}")
     
-    print(f"  读取特征位置文件: {file_path.name}")
-    df = pd.read_csv(file_path)
-    
-    if feature_type.upper() == 'SNP':
-        # SNP文件格式: Feature,#Chromosome,Position,...
-        df = df[['Feature', '#Chromosome', 'Position']].copy()
-        df.rename(columns={
-            'Feature': 'Site_ID',
-            '#Chromosome': 'chr',
-            'Position': 'start'
-        }, inplace=True)
-        # SNP使用start作为位置
-        df['end'] = df['start']
-    else:
-        # 甲基化文件格式: Feature,chr,start,end,...
-        df = df[['Feature', 'chr', 'start', 'end']].copy()
-        df.rename(columns={'Feature': 'Site_ID'}, inplace=True)
-        # 甲基化使用start+1
-        df['start'] = df['start'] + 1
-        df['end'] = df['start']  # 单碱基位点
-    
-    return df
+    print(f"  总计加载了 {len(all_positions)} 个位置记录")
+    return all_positions
 
 def find_overlapping_motifs(site_chr, site_pos, tf_df):
     """
@@ -104,10 +153,10 @@ def find_overlapping_motifs(site_chr, site_pos, tf_df):
     # 筛选同一染色体的motif
     chr_motifs = tf_df[tf_df['chr'] == site_chr]
     
-    # 找到重叠的motif (site_pos在motif的start和stop之间)
+    # 找到重叠的motif (site_pos在motif的start往前10bp和stop往后10bp之间)
     overlapping = chr_motifs[
-        (chr_motifs['start'] <= site_pos) & 
-        (chr_motifs['stop'] >= site_pos)
+        (chr_motifs['start'] - 10 <= site_pos) & 
+        (chr_motifs['stop'] + 10 >= site_pos)
     ]
     
     if len(overlapping) == 0:
@@ -124,43 +173,62 @@ def find_overlapping_motifs(site_chr, site_pos, tf_df):
     
     return results
 
-def process_summary_table(summary_file, feature_positions, tf_df):
+def process_intersection_file(intersection_file, all_positions, tf_df):
     """
-    处理单个summary_table文件，添加位置和TF信息
+    处理单个intersection.csv文件，添加位置和TF信息
     
     Parameters:
     -----------
-    summary_file: Path, summary_table文件路径
-    feature_positions: DataFrame, 特征位置信息
+    intersection_file: Path, intersection.csv文件路径
+    all_positions: dict, 所有Site_ID的位置信息
     tf_df: DataFrame, TF motif数据
     
     Returns:
     --------
     DataFrame, 添加了位置和TF信息的结果
     """
-    print(f"  处理文件: {summary_file.name}")
+    # 读取intersection.csv文件（只有Site_ID列表）
+    df = pd.read_csv(intersection_file, header=None, names=['Site_ID'])
+    # 删除第一行如果它是标题（不包含特征ID格式：CG_、CHG_、CHH_、SNP_）
+    first_id = str(df.iloc[0]['Site_ID'])
+    if not (first_id.startswith('CG_') or first_id.startswith('CHG_') or 
+            first_id.startswith('CHH_') or first_id.startswith('SNP_')):
+        df = df.iloc[1:].reset_index(drop=True)
     
-    # 读取summary_table
-    df = pd.read_csv(summary_file, sep='\t')
-    print(f"    原始记录数: {len(df)}")
+    print(f"  原始记录数: {len(df)}")
     
-    # 删除已存在的位置和motif列（如果存在）
-    cols_to_remove = ['chr', 'start', 'end']
-    # 删除所有motif相关列（包括motif_id_1, motif_id_2等）
-    motif_pattern_cols = [col for col in df.columns if col.startswith('motif_')]
-    cols_to_remove.extend(motif_pattern_cols)
-    df = df.drop(columns=[col for col in cols_to_remove if col in df.columns])
+    # 添加位置信息
+    chr_list = []
+    start_list = []
+    end_list = []
     
-    # 合并位置信息
-    df = df.merge(feature_positions, on='Site_ID', how='left')
+    for site_id in df['Site_ID']:
+        if site_id in all_positions:
+            pos = all_positions[site_id]
+            chr_list.append(pos['chr'])
+            # 转换为整数
+            start_list.append(int(pos['start']))
+            end_list.append(int(pos['end']))
+        else:
+            chr_list.append(None)
+            start_list.append(None)
+            end_list.append(None)
+    
+    df['chr'] = chr_list
+    # 使用 Int64 类型以支持缺失值的整数列
+    df['position'] = pd.array(start_list, dtype='Int64')
+    
+    # 统计找到位置信息的数量
+    n_with_pos = df['chr'].notna().sum()
+    print(f"  找到位置信息: {n_with_pos}/{len(df)}")
     
     # 为每个位点找到重叠的TF motif
     all_overlapping_motifs = []
     
     for _, row in df.iterrows():
-        if pd.notna(row['chr']) and pd.notna(row['start']):
+        if pd.notna(row['chr']) and pd.notna(row['position']):
             overlapping_motifs = find_overlapping_motifs(
-                row['chr'], row['start'], tf_df
+                row['chr'], row['position'], tf_df
             )
             all_overlapping_motifs.append(overlapping_motifs)
         else:
@@ -173,7 +241,7 @@ def process_summary_table(summary_file, feature_positions, tf_df):
     motif_cols = []
     
     if max_motifs > 0:
-        print(f"    最大重叠motif数量: {max_motifs}")
+        print(f"  最大重叠motif数量: {max_motifs}")
         
         # 为每个motif创建单独的列
         for i in range(1, max_motifs + 1):
@@ -204,75 +272,61 @@ def process_summary_table(summary_file, feature_positions, tf_df):
         df['motif_stop_1'] = 'NA'
         motif_cols = ['motif_id_1', 'motif_start_1', 'motif_stop_1']
     
-    # 重新排列列顺序: Site_ID后面跟chr, start, end, 然后是其他列，最后是motif信息
+    # 重新排列列顺序: Site_ID后面跟chr, position, 然后是其他列，最后是motif信息
     other_cols = [col for col in df.columns if col not in 
-                  ['Site_ID', 'chr', 'start', 'end'] + motif_cols]
-    new_order = ['Site_ID', 'chr', 'start', 'end'] + other_cols + motif_cols
+                  ['Site_ID', 'chr', 'position'] + motif_cols]
+    new_order = ['Site_ID', 'chr', 'position'] + other_cols + motif_cols
     df = df[new_order]
     
     # 统计有TF motif的位点数量
     n_with_motif = sum(df['motif_id_1'] != 'NA')
-    print(f"    位点在TF motif区域内: {n_with_motif}/{len(df)}")
+    print(f"  位点在TF motif区域内: {n_with_motif}/{len(df)}")
     
     return df
 
 def main():
     """
-    主函数：处理所有文件夹和summary_table文件
+    主函数：处理feature_analysis文件夹下的intersection.csv文件
     """
     print("=" * 80)
-    print("开始处理summary_table文件，添加位置和TF motif信息")
+    print("开始处理intersection.csv文件，添加位置和TF motif信息")
     print("=" * 80)
     
-    # 读取TF motif数据
-    tf_df = read_tf_data(TF_FILE)
+    # 读取所有TF motif数据
+    tf_df = read_all_tf_data(TF_FILES)
     
-    # 处理每个文件夹
-    for folder in FOLDERS:
-        print(f"\n处理文件夹: {folder}")
-        print("-" * 80)
+    # 加载所有特征位置数据
+    all_positions = load_all_feature_positions()
+    
+    # 定义要查找的文件后缀
+    suffixes = ['_SA_intersection.csv', '_SB_intersection.csv', '_SPα_intersection.csv', 
+                '_SPβ_intersection.csv', '_ST_intersection.csv']
+    
+    # 查找所有符合条件的文件
+    all_files = []
+    for suffix in suffixes:
+        files = list(ANALYSIS_DIR.glob(f"*{suffix}"))
+        all_files.extend(files)
+    
+    if not all_files:
+        print(f"警告: 在 {ANALYSIS_DIR} 中未找到intersection.csv文件")
+        return
+    
+    print(f"\n找到 {len(all_files)} 个intersection.csv文件")
+    print("-" * 80)
+    
+    # 处理每个文件
+    for intersection_file in sorted(all_files):
+        filename = intersection_file.name
+        print(f"\n处理文件: {filename}")
         
-        rca_folder = RCA_DIR / folder
+        # 处理文件
+        result_df = process_intersection_file(intersection_file, all_positions, tf_df)
         
-        # 查找所有summary_table文件
-        summary_files = list(rca_folder.glob("*_summary_table.tsv"))
-        
-        if not summary_files:
-            print(f"  警告: 在 {rca_folder} 中未找到summary_table文件")
-            continue
-        
-        print(f"  找到 {len(summary_files)} 个summary_table文件")
-        
-        # 处理每个summary_table文件
-        for summary_file in summary_files:
-            # 确定特征类型 (从文件名提取)
-            filename = summary_file.name
-            if filename.startswith('SNP_'):
-                feature_type = 'SNP'
-            elif filename.startswith('CG_'):
-                feature_type = 'CG'
-            elif filename.startswith('CHG_'):
-                feature_type = 'CHG'
-            elif filename.startswith('CHH_'):
-                feature_type = 'CHH'
-            else:
-                print(f"  警告: 无法识别文件类型 {filename}")
-                continue
-            
-            # 读取特征位置信息
-            feature_positions = read_feature_positions(folder, feature_type)
-            
-            if feature_positions is None:
-                print(f"  跳过文件 {filename} (无法读取位置信息)")
-                continue
-            
-            # 处理summary_table文件
-            result_df = process_summary_table(summary_file, feature_positions, tf_df)
-            
-            # 保存结果 (覆盖原文件)
-            output_file = summary_file
-            result_df.to_csv(output_file, sep='\t', index=False)
-            print(f"    结果已保存到: {output_file}")
+        # 保存结果 (覆盖原文件)
+        output_file = intersection_file
+        result_df.to_csv(output_file, index=False)
+        print(f"  结果已保存到: {output_file.name}")
     
     print("\n" + "=" * 80)
     print("所有文件处理完成！")

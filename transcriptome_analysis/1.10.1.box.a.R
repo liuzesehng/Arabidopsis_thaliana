@@ -19,12 +19,15 @@ unique(data$`tem`)
 # 将温度列转换为因子，确保正确排序（包含10、16、22）
 data$Temperature <- factor(data$`tem`, levels = c("10", "16", "22"))
 
+# 对α进行log1p转换以避免log(0)
+data$α <- log1p(data$α)
+
 # 检查数据
 table(data$Temperature)
 summary(data$α..)
 
 # 统计摘要
-cat("\n=== 各温度组的α/%TPM统计摘要 ===\n")
+cat("\n=== 各温度组的α(%)TPM统计摘要 ===\n")
 summary_stats <- data %>%
   group_by(Temperature) %>%
   summarise(
@@ -124,8 +127,8 @@ p <- ggplot(data, aes(x = Temperature, y = α.., fill = Temperature)) +
               tip_length = 0.02,
               textsize = 5) +
   labs(
-    y = "a/%",
-    fill = "Tem/°C"
+    y = "a(%)",
+    fill = "Tem(°C)"
   ) +
   theme_minimal() +
   theme(
@@ -254,8 +257,8 @@ p <- ggplot(data, aes(x = Temperature, y = α, fill = Temperature)) +
               tip_length = 0.02,
               textsize = 5) +
   labs(
-    y = "a/TPM",
-    fill = "Tem/°C"
+    y = "ln(a+1)",
+    fill = "Tem(°C)"
   ) +
   theme_minimal() +
   theme(

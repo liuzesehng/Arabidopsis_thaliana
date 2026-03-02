@@ -19,6 +19,9 @@ unique(data$`tem`)
 # 将温度列转换为因子，确保正确排序（包含10、16、22）
 data$Temperature <- factor(data$`tem`, levels = c("10", "16", "22"))
 
+# 对β1进行log1p转换以避免log(0)
+data$β1 <- log1p(data$β1)
+
 # 检查数据
 table(data$Temperature)
 summary(data$β1..)
@@ -101,15 +104,15 @@ p <- ggplot(data, aes(x = Temperature, y = β1.., fill = Temperature)) +
                position = position_dodge(width = 0.5), width = 0.5) +
   scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
   geom_signif(comparisons = list(c("10", "16"), c("16", "22"), c("10", "22")),
-              annotations = get_significance(comparison_pvals2),
+              annotations = get_significance(comparison_pvals),
               y_position = c(max(data$β1.., na.rm = TRUE) * 1.1, 
                            max(data$β1.., na.rm = TRUE) * 1.2,
                            max(data$β1.., na.rm = TRUE) * 1.3),
               tip_length = 0.02,
               textsize = 5) +
   labs(
-    y = "b1/%",
-    fill = "Tem/°C"
+    y = "b1(%)",
+    fill = "Tem(°C)"
   ) +
   theme_minimal() +
   theme(
@@ -218,8 +221,8 @@ p <- ggplot(data, aes(x = Temperature, y = β1, fill = Temperature)) +
               tip_length = 0.02,
               textsize = 5) +
   labs(
-    y = "b1/TPM",
-    fill = "Tem/°C"
+    y = "ln(b1+1)",
+    fill = "Tem(°C)"
   ) +
   theme_minimal() +
   theme(

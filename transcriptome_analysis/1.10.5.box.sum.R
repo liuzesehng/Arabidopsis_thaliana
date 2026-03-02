@@ -19,6 +19,9 @@ unique(data$`tem`)
 # 将温度列转换为因子，确保正确排序（包含10、16、22）
 data$Temperature <- factor(data$`tem`, levels = c("10", "16", "22"))
 
+# 对total进行log1p转换以避免log(0)
+data$total <- log1p(data$total)
+
 # 检查数据
 table(data$Temperature)
 summary(data$total)
@@ -103,8 +106,8 @@ p <- ggplot(data, aes(x = Temperature, y = total, fill = Temperature)) +
               tip_length = 0.02,
               textsize = 5) +
   labs(
-    y = "total/TPM",
-    fill = "Tem/°C"
+    y = "ln(total+1)",
+    fill = "Tem(°C)"
   ) +
   theme_minimal() +
   theme(

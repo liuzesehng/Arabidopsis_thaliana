@@ -12,7 +12,7 @@ setwd("/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_t
 
 # 2. 定义基础路径
 base_dir <- "../../list/xgboot/TPM_4.5/feature_data_extraction"
-categories <- c("Scoupled_specific", "Sexpr_only", "Ssplice_only")
+categories <- c("A_per_TPM", "A_TPM", "B_per_TPM", "B_TPM", "total_TPM")
 
 # 3. 定义目标基因信息 (Rca = AT2G39730)
 # 根据TAIR10, Rca (AT2G39730) 位于 Chr2:16570746-16573692 (反义链)

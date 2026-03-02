@@ -98,8 +98,8 @@ text(sft$fitIndices[, 1],
 dev.off()
 
 #6.构建网络
-net <- blockwiseModules(rca_total, power = 16, maxBlockSize = 20000,
-                       TOMType = "unsigned", minModuleSize = 30,
+net <- blockwiseModules(rca_total, power = 16, maxBlockSize = 20000,,networkType = "signed",
+                       TOMType = "signed", minModuleSize = 30,
                        reassignThreshold = 0, mergeCutHeight = 0.25,
                        numericLabels = TRUE, pamRespectsDendro = FALSE,
                        saveTOMs = TRUE, saveTOMFileBase = "10C/femaleMouseTOM", verbose = 3)
@@ -128,7 +128,7 @@ geneTree =net$dendrograms[[1]]
 #9.模块的导出
 #主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
 TOM=TOMsimilarityFromExpr(rca_total, power=16)
-modules= c("brown")
+modules= c("blue")
 probes = colnames(rca_total)
 inModule =is.finite(match(moduleColors,modules));
 modProbes=probes[inModule] #确定保留下来的。
@@ -188,6 +188,112 @@ datout=data.frame(datSummary,colorNEW=color1,datKME )
 #write.table(datout, "pink_gene_module.xls", sep="\t", row.names=F,quote=F)
 write.table(datout, "10C/10C.module_gene_module.xls", sep="\t", row.names=F,quote=F)
 
+# 输出blue模块的基因
+blue_genes <- datout[datout$colorNEW == "blue", ]
+write.table(blue_genes, "10C/10C.blue_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Blue模块包含", nrow(blue_genes), "个基因\n")
+
+#15.找与ME2模块负相关最高的模块
+# 计算模块间的相关性
+module_cor <- cor(MEs, use = "pairwise.complete.obs")
+# 提取ME2与其他模块的相关性
+ME2_cor <- module_cor["ME2", ]
+# 找到与ME2负相关最高的模块（排除ME2自身）
+ME2_cor_others <- ME2_cor[names(ME2_cor) != "ME2"]
+most_neg_module <- names(which.min(ME2_cor_others))
+cat("与ME2负相关最高的模块是:", most_neg_module, "\n")
+cat("相关系数为:", ME2_cor_others[most_neg_module], "\n")
+
+#主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
+TOM=TOMsimilarityFromExpr(rca_total, power=16)
+modules= c("grey") #与ME2负相关最高的模块是grey
+probes = colnames(rca_total)
+inModule =is.finite(match(moduleColors,modules));
+modProbes=probes[inModule] #确定保留下来的。
+# 也是提取指定模块的基因名
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule]
+dimnames(modTOM) = list(modProbes, modProbes)
+## 模块对应的基因关系矩阵 
+
+# 导出网络到cytoscape
+cyt = exportNetworkToCytoscape(
+       modTOM,
+      edgeFile = paste("10C/10C.negative.CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+      nodeFile = paste("10C/10C.negative.CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+      weighted = TRUE,
+      threshold = 0.05,
+      nodeNames = modProbes, 
+      nodeAttr = moduleColors[inModule])
+
+# 输出grey模块的基因
+grey_genes <- datout[datout$colorNEW == "grey", ]
+write.table(grey_genes, "10C/10C.negative_grey_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Grey模块包含", nrow(grey_genes), "个基因\n")
+
+# #16.提取该负相关模块的基因
+# target_module_color <- "grey"
+# target_genes <- colnames(rca_total)[moduleColors == target_module_color]
+# cat("该模块包含", length(target_genes), "个基因\n")
+
+# #17.提取RCA基因表达数据并计算基因与Rca的相关性
+# # RCA是基因ID AT2G39730，从表达数据中提取其表达值
+# RCA_gene <- "AT2G39730"
+
+# # 检查RCA基因是否在数据中
+# if (!RCA_gene %in% colnames(rca_total)) {
+#   stop(paste("RCA基因", RCA_gene, "不在表达数据中！"))
+# }
+
+# # 提取RCA基因的表达值作为向量
+# Rca <- rca_total[, RCA_gene]
+# cat("成功提取RCA基因 (", RCA_gene, ") 的表达数据\n")
+
+# # 计算目标模块基因与Rca的相关性
+# cor_results <- corAndPvalue(rca_total[, target_genes], Rca, use = "pairwise.complete.obs")
+# gene_rca_cor <- cor_results$cor
+# gene_rca_pval <- cor_results$p
+
+# # FDR校正
+# gene_rca_fdr <- p.adjust(gene_rca_pval, method = "fdr")
+
+# # 创建结果数据框
+# gene_rca_results <- data.frame(
+#   Gene = target_genes,
+#   Correlation = as.vector(gene_rca_cor),
+#   P_value = as.vector(gene_rca_pval),
+#   FDR_q = gene_rca_fdr
+# )
+
+# #18.筛选符合条件的基因 (r ≤ -0.3, FDR q < 0.05)
+# significant_genes <- gene_rca_results[
+#   !is.na(gene_rca_results$Correlation) & 
+#   !is.na(gene_rca_results$FDR_q) &
+#   gene_rca_results$Correlation <= -0.3 & 
+#   gene_rca_results$FDR_q < 0.05, 
+# ]
+
+# cat("筛选出", nrow(significant_genes), "个符合条件的基因 (r ≤ -0.3, FDR q < 0.05)\n")
+
+# # 只有在有结果时才进行排序和输出
+# if (nrow(significant_genes) > 0) {
+#   # 按相关系数排序
+#   significant_genes <- significant_genes[order(significant_genes$Correlation), ]
+  
+#   cat("\n前几个基因:\n")
+#   print(head(significant_genes))
+  
+#   # 导出结果
+#   write.table(significant_genes, 
+#               "10C/ME2_negative_correlated_genes.txt", 
+#               sep = "\t", 
+#               row.names = FALSE, 
+#               quote = FALSE)
+  
+#   cat("\n结果已导出到: 10C/ME2_negative_correlated_genes.txt\n")
+# } else {
+#   cat("警告：没有找到符合条件的基因！\n")
+# }
 
 # Rca_16C data
 #1.数据预处理
@@ -284,8 +390,8 @@ text(sft$fitIndices[, 1],
 dev.off()
 
 #6.构建网络
-net <- blockwiseModules(rca_total, power = 14, maxBlockSize = 20000,
-                       TOMType = "unsigned", minModuleSize = 30,
+net <- blockwiseModules(rca_total, power = 14, maxBlockSize = 20000,networkType = "signed",
+                       TOMType = "signed", minModuleSize = 30,
                        reassignThreshold = 0, mergeCutHeight = 0.25,
                        numericLabels = TRUE, pamRespectsDendro = FALSE,
                        saveTOMs = TRUE, saveTOMFileBase = "16C/femaleMouseTOM", verbose = 3)
@@ -314,7 +420,7 @@ geneTree =net$dendrograms[[1]]
 #9.模块的导出
 #主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
 TOM=TOMsimilarityFromExpr(rca_total, power=14)
-modules= c("red")
+modules= c("blue")
 probes = colnames(rca_total)
 inModule =is.finite(match(moduleColors,modules));
 modProbes=probes[inModule] #确定保留下来的。
@@ -374,6 +480,112 @@ datout=data.frame(datSummary,colorNEW=color1,datKME )
 #write.table(datout, "pink_gene_module.xls", sep="\t", row.names=F,quote=F)
 write.table(datout, "16C/16C.module_gene_module.xls", sep="\t", row.names=F,quote=F)
 
+# 输出blue模块的基因
+blue_genes <- datout[datout$colorNEW == "blue", ]
+write.table(blue_genes, "16C/16C.blue_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Blue模块包含", nrow(blue_genes), "个基因\n")
+
+#15.找与ME2模块负相关最高的模块
+# 计算模块间的相关性
+module_cor <- cor(MEs, use = "pairwise.complete.obs")
+# 提取ME2与其他模块的相关性
+ME2_cor <- module_cor["ME2", ]
+# 找到与ME2负相关最高的模块（排除ME2自身）
+ME2_cor_others <- ME2_cor[names(ME2_cor) != "ME2"]
+most_neg_module <- names(which.min(ME2_cor_others))
+cat("与ME2负相关最高的模块是:", most_neg_module, "\n")
+cat("相关系数为:", ME2_cor_others[most_neg_module], "\n")
+
+#主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
+TOM=TOMsimilarityFromExpr(rca_total, power=14)
+modules= c("pink") #与ME2负相关最高的模块是pink
+probes = colnames(rca_total)
+inModule =is.finite(match(moduleColors,modules));
+modProbes=probes[inModule] #确定保留下来的。
+# 也是提取指定模块的基因名
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule]
+dimnames(modTOM) = list(modProbes, modProbes)
+## 模块对应的基因关系矩阵 
+
+# 导出网络到cytoscape
+cyt = exportNetworkToCytoscape(
+       modTOM,
+      edgeFile = paste("16C/16C.negative.CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+      nodeFile = paste("16C/16C.negative.CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+      weighted = TRUE,
+      threshold = 0.05,
+      nodeNames = modProbes, 
+      nodeAttr = moduleColors[inModule])
+
+# 输出pink模块的基因
+pink_genes <- datout[datout$colorNEW == "pink", ]
+write.table(pink_genes, "16C/16C.negative_pink_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Pink模块包含", nrow(pink_genes), "个基因\n")
+
+# #16.提取该负相关模块的基因
+# target_module_color <- "pink"
+# target_genes <- colnames(rca_total)[moduleColors == target_module_color]
+# cat("该模块包含", length(target_genes), "个基因\n")
+
+# #17.提取RCA基因表达数据并计算基因与Rca的相关性
+# # RCA是基因ID AT2G39730，从表达数据中提取其表达值
+# RCA_gene <- "AT2G39730"
+
+# # 检查RCA基因是否在数据中
+# if (!RCA_gene %in% colnames(rca_total)) {
+#   stop(paste("RCA基因", RCA_gene, "不在表达数据中！"))
+# }
+
+# # 提取RCA基因的表达值作为向量
+# Rca <- rca_total[, RCA_gene]
+# cat("成功提取RCA基因 (", RCA_gene, ") 的表达数据\n")
+
+# # 计算目标模块基因与Rca的相关性
+# cor_results <- corAndPvalue(rca_total[, target_genes], Rca, use = "pairwise.complete.obs")
+# gene_rca_cor <- cor_results$cor
+# gene_rca_pval <- cor_results$p
+
+# # FDR校正
+# gene_rca_fdr <- p.adjust(gene_rca_pval, method = "fdr")
+
+# # 创建结果数据框
+# gene_rca_results <- data.frame(
+#   Gene = target_genes,
+#   Correlation = as.vector(gene_rca_cor),
+#   P_value = as.vector(gene_rca_pval),
+#   FDR_q = gene_rca_fdr
+# )
+
+# #18.筛选符合条件的基因 (r ≤ -0.3, FDR q < 0.05)
+# significant_genes <- gene_rca_results[
+#   !is.na(gene_rca_results$Correlation) & 
+#   !is.na(gene_rca_results$FDR_q) &
+#   gene_rca_results$Correlation <= -0.3 & 
+#   gene_rca_results$FDR_q < 0.05, 
+# ]
+
+# cat("筛选出", nrow(significant_genes), "个符合条件的基因 (r ≤ -0.3, FDR q < 0.05)\n")
+
+# # 只有在有结果时才进行排序和输出
+# if (nrow(significant_genes) > 0) {
+#   # 按相关系数排序
+#   significant_genes <- significant_genes[order(significant_genes$Correlation), ]
+  
+#   cat("\n前几个基因:\n")
+#   print(head(significant_genes))
+  
+#   # 导出结果
+#   write.table(significant_genes, 
+#               "16C/ME2_negative_correlated_genes.txt", 
+#               sep = "\t", 
+#               row.names = FALSE, 
+#               quote = FALSE)
+  
+#   cat("\n结果已导出到: 16C/ME2_negative_correlated_genes.txt\n")
+# } else {
+#   cat("警告：没有找到符合条件的基因！\n")
+# }
 
 # Rca_22C data
 #1.数据预处理
@@ -470,8 +682,8 @@ text(sft$fitIndices[, 1],
 dev.off()
 
 #6.构建网络
-net <- blockwiseModules(rca_total, power = 4, maxBlockSize = 20000,
-                       TOMType = "unsigned", minModuleSize = 30,
+net <- blockwiseModules(rca_total, power = 4, maxBlockSize = 20000,networkType = "signed",
+                       TOMType = "signed", minModuleSize = 30,
                        reassignThreshold = 0, mergeCutHeight = 0.25,
                        numericLabels = TRUE, pamRespectsDendro = FALSE,
                        saveTOMs = TRUE, saveTOMFileBase = "22C/femaleMouseTOM", verbose = 3)
@@ -500,7 +712,7 @@ geneTree =net$dendrograms[[1]]
 #9.模块的导出
 #主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
 TOM=TOMsimilarityFromExpr(rca_total, power=4)
-modules= c("green")
+modules= c("yellow")
 probes = colnames(rca_total)
 inModule =is.finite(match(moduleColors,modules));
 modProbes=probes[inModule] #确定保留下来的。
@@ -559,3 +771,111 @@ datSummary=rownames(dataExpr1)
 datout=data.frame(datSummary,colorNEW=color1,datKME )
 #write.table(datout, "pink_gene_module.xls", sep="\t", row.names=F,quote=F)
 write.table(datout, "22C/22C.module_gene_module.xls", sep="\t", row.names=F,quote=F)
+
+# 输出yellow模块的基因
+yellow_genes <- datout[datout$colorNEW == "yellow", ]
+write.table(yellow_genes, "22C/22C.yellow_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Yellow模块包含", nrow(yellow_genes), "个基因\n")
+
+#15.找与ME4模块负相关最高的模块
+# 计算模块间的相关性
+module_cor <- cor(MEs, use = "pairwise.complete.obs")
+# 提取ME4与其他模块的相关性
+ME4_cor <- module_cor["ME4", ]
+# 找到与ME4负相关最高的模块（排除ME4自身）
+ME4_cor_others <- ME4_cor[names(ME4_cor) != "ME4"]
+most_neg_module <- names(which.min(ME4_cor_others))
+cat("与ME4负相关最高的模块是:", most_neg_module, "\n")
+cat("相关系数为:", ME4_cor_others[most_neg_module], "\n")
+
+#主要模块里面的基因直接的相互作用关系信息可以导出到cytoscape等网络可视化软件。
+TOM=TOMsimilarityFromExpr(rca_total, power=4)
+modules= c("black") #与ME4负相关最高的模块是black
+probes = colnames(rca_total)
+inModule =is.finite(match(moduleColors,modules));
+modProbes=probes[inModule] #确定保留下来的。
+# 也是提取指定模块的基因名
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule]
+dimnames(modTOM) = list(modProbes, modProbes)
+## 模块对应的基因关系矩阵 
+
+# 导出网络到cytoscape
+cyt = exportNetworkToCytoscape(
+       modTOM,
+      edgeFile = paste("22C/22C.negative.CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+      nodeFile = paste("22C/22C.negative.CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+      weighted = TRUE,
+      threshold = 0.05,
+      nodeNames = modProbes, 
+      nodeAttr = moduleColors[inModule])
+
+# 输出black模块的基因
+black_genes <- datout[datout$colorNEW == "black", ]
+write.table(black_genes, "22C/22C.negative_black_module_genes.txt", sep="\t", row.names=F, quote=F)
+cat("Black模块包含", nrow(black_genes), "个基因\n")
+
+# #16.提取该负相关模块的基因
+# target_module_color <- "black"
+# target_genes <- colnames(rca_total)[moduleColors == target_module_color]
+# cat("该模块包含", length(target_genes), "个基因\n")
+
+# #17.提取RCA基因表达数据并计算基因与Rca的相关性
+# # RCA是基因ID AT2G39730，从表达数据中提取其表达值
+# RCA_gene <- "AT2G39730"
+
+# # 检查RCA基因是否在数据中
+# if (!RCA_gene %in% colnames(rca_total)) {
+#   stop(paste("RCA基因", RCA_gene, "不在表达数据中！"))
+# }
+
+# # 提取RCA基因的表达值作为向量
+# Rca <- rca_total[, RCA_gene]
+# cat("成功提取RCA基因 (", RCA_gene, ") 的表达数据\n")
+
+# # 计算目标模块基因与Rca的相关性
+# cor_results <- corAndPvalue(rca_total[, target_genes], Rca, use = "pairwise.complete.obs")
+# gene_rca_cor <- cor_results$cor
+# gene_rca_pval <- cor_results$p
+
+# # FDR校正
+# gene_rca_fdr <- p.adjust(gene_rca_pval, method = "fdr")
+
+# # 创建结果数据框
+# gene_rca_results <- data.frame(
+#   Gene = target_genes,
+#   Correlation = as.vector(gene_rca_cor),
+#   P_value = as.vector(gene_rca_pval),
+#   FDR_q = gene_rca_fdr
+# )
+
+# #18.筛选符合条件的基因 (r ≤ -0.3, FDR q < 0.05)
+# significant_genes <- gene_rca_results[
+#   !is.na(gene_rca_results$Correlation) & 
+#   !is.na(gene_rca_results$FDR_q) &
+#   gene_rca_results$Correlation <= -0.3 & 
+#   gene_rca_results$FDR_q < 0.05, 
+# ]
+
+# cat("筛选出", nrow(significant_genes), "个符合条件的基因 (r ≤ -0.3, FDR q < 0.05)\n")
+
+# # 只有在有结果时才进行排序和输出
+# if (nrow(significant_genes) > 0) {
+#   # 按相关系数排序
+#   significant_genes <- significant_genes[order(significant_genes$Correlation), ]
+  
+#   cat("\n前几个基因:\n")
+#   print(head(significant_genes))
+  
+#   # 导出结果
+#   write.table(significant_genes, 
+#               "22C/ME4_negative_correlated_genes.txt", 
+#               sep = "\t", 
+#               row.names = FALSE, 
+#               quote = FALSE)
+  
+#   cat("\n结果已导出到: 22C/ME4_negative_correlated_genes.txt\n")
+# } else {
+#   cat("警告：没有找到符合条件的基因！\n")
+# }
+
