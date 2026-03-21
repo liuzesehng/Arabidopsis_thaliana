@@ -29,7 +29,7 @@ plt.rcParams.update({
 })
 
 # 定义变量名
-name_TPM = "B_TPM"
+name_TPM = "B_per_TPM"
 
 # 读取原始数据
 df_all = pd.read_csv('../RCA/RCA.climate.tsv', sep='\t')
@@ -66,7 +66,7 @@ for filter_val in [10, 16, 22]:
     # 划分特征和目标变量
     x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
     x = x.apply(pd.to_numeric, errors='coerce')
-    y = df['β']
+    y = df['β/%']
 
     # 划分训练集和测试集
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -379,8 +379,8 @@ for filter_val in [10, 16, 22]:
     p = np.poly1d(z)
     plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
                 label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
-    
-    plt.title(rf'Expression level of Rca $\beta$ ({filter_val:g}$^\circ$C)', fontsize=TITLE_FONT_SIZE)
+
+    plt.title(rf'Rca $\beta$% ({filter_val:g}$^\circ$C)', fontsize=TITLE_FONT_SIZE)
     plt.xlabel('Actual Values', fontsize=LABEL_FONT_SIZE)
     plt.ylabel('Predicted Values', fontsize=LABEL_FONT_SIZE)
     plt.xticks(fontsize=TICK_FONT_SIZE)
@@ -394,4 +394,3 @@ for filter_val in [10, 16, 22]:
 
     # 保存模型
     best_model.save_model(f'{output_dir}/my_model_{name_TPM}_1.0.json')
-

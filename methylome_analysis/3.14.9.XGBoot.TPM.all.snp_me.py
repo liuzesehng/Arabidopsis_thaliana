@@ -29,10 +29,10 @@ plt.rcParams.update({
 })
 
 # 定义变量名
-name_TPM = "B_TPM"
+name_TPM = "total_TPM"
 
 # 读取原始数据
-df = pd.read_csv('../RCA/RCA.climate.tsv', sep='\t')
+df = pd.read_csv('../RCA/Alt.all.snp_meth.filtered.tsv', sep='\t')
 
 # log转换
 cols_to_log = ['total', 'α', 'β', 'β1', 'β2']
@@ -43,9 +43,9 @@ cols_to_transform = [col for col in cols_to_log if col in df.columns]
 df[cols_to_transform] = np.log1p(df[cols_to_transform])
 
 # 创建目录（如果不存在），区分不同数据集
-output_dir = f"TPM_1.5"
+output_dir = f"TPM_4.5_all"
 os.makedirs(output_dir, exist_ok=True)
-
+   
 # 检查是否还有缺失值
 df.isnull().sum()
 
@@ -53,9 +53,9 @@ df.isnull().sum()
 #data = df.dropna()
 
 # 划分特征和目标变量
-x = df.drop(['total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
+x = df.drop(['Temperature', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
-y = df['β']
+y = df['total']
 
 # 划分训练集和测试集
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -95,18 +95,18 @@ def objective(trial):
     return cv_scores.mean()
 
 # 创建优化任务
-print("Starting Optuna optimization...")
+print(f"Starting Optuna optimization...")
 study = optuna.create_study(direction='maximize')  # 最大化 R²
 # --- 开启 Optuna 并行 ---
 study.optimize(objective, n_trials=500, n_jobs=4, show_progress_bar=True)
 
 # 输出最优参数
-print("Best parameters found: ", study.best_params)
-print("Best R² score: ", study.best_value)
+print(f"Best parameters found: ", study.best_params)
+print(f"Best R² score: ", study.best_value)
     
 # 将最优参数写入文件
 with open(f'{output_dir}/{name_TPM}_optimization_results.txt', 'w', encoding='utf-8') as f:
-    f.write(f"=== {name_TPM} 优化结果 ===\n\n")
+    f.write(f"=== {name_TPM} 优化结果  ===\n\n")
     f.write(f"最优参数:\n")
     for param, value in study.best_params.items():
         f.write(f"  {param}: {value}\n")
@@ -322,7 +322,7 @@ colorbar.ax.tick_params(labelsize=TICK_FONT_SIZE)
 colorbar.set_label('Feature value', rotation=270, labelpad=20, fontsize=LABEL_FONT_SIZE)
 colorbar.outline.set_visible(False)
 
-fig.savefig(f"{output_dir}/SHAP_combined_{name_TPM}_1.0.pdf",
+fig.savefig(f"{output_dir}/SHAP_combined_{name_TPM}_4.0.pdf",
             format='pdf', bbox_inches='tight')
 plt.close(fig)
 
@@ -352,7 +352,7 @@ for feature in top_10_features:
         
     # 处理文件名中的特殊字符，例如将 '/' 替换为 '_'
     safe_feature_name = feature.replace('/', '_').replace('\\', '_')
-    plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_1.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
+    plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_4.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
     plt.close()
 
 
@@ -369,17 +369,16 @@ p = np.poly1d(z)
 plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
             label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-plt.title(r'Expression level of Rca $\beta$', fontsize=TITLE_FONT_SIZE)
+plt.title(f'Total expression level of Rca', fontsize=TITLE_FONT_SIZE)
 plt.xlabel('Actual Values', fontsize=LABEL_FONT_SIZE)
 plt.ylabel('Predicted Values', fontsize=LABEL_FONT_SIZE)
 plt.xticks(fontsize=TICK_FONT_SIZE)
 plt.yticks(fontsize=TICK_FONT_SIZE)
 plt.legend(loc="upper left", fontsize=LEGEND_FONT_SIZE)
 #plt.grid(True) # 添加网格
-plt.savefig(f'{output_dir}/{name_TPM}_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
+plt.savefig(f'{output_dir}/{name_TPM}_4.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
 plt.show()
 plt.close()
 
-
 # 保存模型
-best_model.save_model(f'{output_dir}/my_model_{name_TPM}_1.0.json')
+best_model.save_model(f'{output_dir}/my_model_{name_TPM}_4.0.json')

@@ -32,7 +32,7 @@ plt.rcParams.update({
 name_TPM = "B_TPM"
 
 # 读取原始数据
-df_all = pd.read_csv('../RCA/RCA.climate.tsv', sep='\t')
+df_all = pd.read_csv('../RCA/Alt.snp_meth.filtered.tsv', sep='\t')
 
 # log转换
 cols_to_log = ['total', 'α', 'β', 'β1', 'β2']
@@ -47,7 +47,7 @@ for filter_val in [10, 16, 22]:
     print(f"Processing dataset for value: {filter_val}")
     
     # 创建目录（如果不存在），区分不同数据集
-    output_dir = f"TPM_1.5_{filter_val}"
+    output_dir = f"TPM_4.5_{filter_val}"
     os.makedirs(output_dir, exist_ok=True)
 
     # 筛选第一列值为当前遍历值的行
@@ -64,7 +64,7 @@ for filter_val in [10, 16, 22]:
     #data = df.dropna()
 
     # 划分特征和目标变量
-    x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
+    x = df.drop(['Temperature', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
     x = x.apply(pd.to_numeric, errors='coerce')
     y = df['β']
 
@@ -81,7 +81,7 @@ for filter_val in [10, 16, 22]:
             # 'device': 'cuda',                 # 使用 GPU 加速（已注释）
             'verbosity': 0,
             'seed': 42,
-            'nthread': 4,
+            'nthread': 16,
             
             # 核心调参区间
             'n_estimators': trial.suggest_int('n_estimators', 100, 2000),
@@ -109,7 +109,7 @@ for filter_val in [10, 16, 22]:
     print(f"[{filter_val}] Starting Optuna optimization...")
     study = optuna.create_study(direction='maximize')  # 最大化 R²
     # --- 开启 Optuna 并行 ---
-    study.optimize(objective, n_trials=500, n_jobs=16, show_progress_bar=True)
+    study.optimize(objective, n_trials=500, n_jobs=4, show_progress_bar=True)
 
     # 输出最优参数
     print(f"[{filter_val}] Best parameters found: ", study.best_params)
@@ -333,7 +333,7 @@ for filter_val in [10, 16, 22]:
     colorbar.set_label('Feature value', rotation=270, labelpad=20, fontsize=LABEL_FONT_SIZE)
     colorbar.outline.set_visible(False)
 
-    fig.savefig(f"{output_dir}/SHAP_combined_{name_TPM}_1.0.pdf",
+    fig.savefig(f"{output_dir}/SHAP_combined_{name_TPM}_4.0.pdf",
                 format='pdf', bbox_inches='tight')
     plt.close(fig)
 
@@ -363,7 +363,7 @@ for filter_val in [10, 16, 22]:
             
         # 处理文件名中的特殊字符，例如将 '/' 替换为 '_'
         safe_feature_name = feature.replace('/', '_').replace('\\', '_')
-        plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_1.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
+        plt.savefig(f"{output_dir}/SHAP_Dependence_{safe_feature_name}_{name_TPM}_4.0.pdf", format='pdf', bbox_inches='tight', dpi=1200)
         plt.close()
 
 
@@ -387,11 +387,10 @@ for filter_val in [10, 16, 22]:
     plt.yticks(fontsize=TICK_FONT_SIZE)
     plt.legend(loc="upper left", fontsize=LEGEND_FONT_SIZE)
     #plt.grid(True) # 添加网格
-    plt.savefig(f'{output_dir}/{name_TPM}_1.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
+    plt.savefig(f'{output_dir}/{name_TPM}_4.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
     plt.show()
     plt.close()
 
 
     # 保存模型
-    best_model.save_model(f'{output_dir}/my_model_{name_TPM}_1.0.json')
-
+    best_model.save_model(f'{output_dir}/my_model_{name_TPM}_4.0.json')

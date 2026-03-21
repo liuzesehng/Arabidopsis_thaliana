@@ -29,21 +29,21 @@ for (file_path in input_files) {
   # 读取数据，假设是制表符分隔
   points <- read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, fill = TRUE)
   
-  # 确保 lat 和 long 列存在且为数值型
-  if (!all(c("lat", "long") %in% colnames(points))) {
-    warning(paste("Skipping", file_path, "- missing lat/long columns"))
+  # 确保 Latitude 和 Longitude 列存在且为数值型
+  if (!all(c("Latitude", "Longitude") %in% colnames(points))) {
+    warning(paste("Skipping", file_path, "- missing Latitude/Longitude columns"))
     next
   }
   
   # 转换坐标列为数值，处理非数值数据
-  points$lat <- as.numeric(points$lat)
-  points$long <- as.numeric(points$long)
+  points$Latitude <- as.numeric(points$Latitude)
+  points$Longitude <- as.numeric(points$Longitude)
   
   # 提取有效坐标行进行查询
-  valid_rows <- !is.na(points$lat) & !is.na(points$long)
+  valid_rows <- !is.na(points$Latitude) & !is.na(points$Longitude)
   
   if (sum(valid_rows) > 0) {
-    coords <- points[valid_rows, c("long", "lat")]
+    coords <- points[valid_rows, c("Longitude", "Latitude")]
     clim_values <- terra::extract(clim_data, coords, ID = FALSE)
     colnames(clim_values) <- bio_names
     
