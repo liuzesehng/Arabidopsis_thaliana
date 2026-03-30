@@ -29,22 +29,40 @@ def read_feature_csv(filepath):
         return set()
 
 def extract_features_from_file(filepath):
-    """从txt文件中提取特征列表，返回特征集合"""
+    """从import_results.txt中提取全部SHAP特征，返回特征集合"""
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 查找 "特征列表:" 后面的内容
-        if '特征列表:' in content:
-            # 提取特征列表部分
-            feature_line = content.split('特征列表:')[1].split('\n')[0].strip()
-            # 按逗号分隔并去除空格
-            features = set([f.strip() for f in feature_line.split(',') if f.strip()])
+            lines = f.readlines()
+
+        features = set()
+        in_feature_section = False
+
+        for line in lines:
+            stripped_line = line.strip()
+
+            if not in_feature_section:
+                if stripped_line == '所有特征及其平均|SHAP|值:':
+                    in_feature_section = True
+                continue
+
+            if not stripped_line:
+                break
+
+            match = re.match(r'^([A-Za-z]+_\d+)\s*:\s*.+$', stripped_line)
+            if match:
+                features.add(match.group(1))
+                continue
+
+            # 遇到下一个段落标题时停止
+            if stripped_line.endswith(':') or stripped_line.startswith('==='):
+                break
+
+        if features:
             print(f"  从 {os.path.basename(filepath)} 提取了 {len(features)} 个特征")
             return features
-        else:
-            print(f"  警告: 在 {filepath} 中未找到 '特征列表:' 标记")
-            return set()
+
+        print(f"  警告: 在 {filepath} 中未找到 '所有特征及其平均|SHAP|值:' 段落或有效特征")
+        return set()
     except Exception as e:
         print(f"  错误: 读取 {filepath} 失败 - {str(e)}")
         return set()
@@ -195,8 +213,8 @@ def process_feature_category(category_name, feature_file, data_base_dir, output_
     else:
         print(f"\n  警告: SNP文件不存在 - {snp_input}")
     
-    # 2. 处理CG甲基化数据
-    cg_input = os.path.join(data_base_dir, "meth/CG.CV.filter.bedGraph")
+    # 2. 处理CG甲基化数据 
+    cg_input = os.path.join(data_base_dir, "meth/CG.CV.before.bedGraph")
     cg_output = os.path.join(category_output_dir, f"{category_name}_CG_data.csv")
     if os.path.exists(cg_input):
         extract_meth_data(features, cg_input, cg_output, "CG")
@@ -204,7 +222,7 @@ def process_feature_category(category_name, feature_file, data_base_dir, output_
         print(f"\n  警告: CG文件不存在 - {cg_input}")
     
     # 3. 处理CHG甲基化数据
-    chg_input = os.path.join(data_base_dir, "meth/CHG.CV.filter.bedGraph")
+    chg_input = os.path.join(data_base_dir, "meth/CHG.CV.before.bedGraph")
     chg_output = os.path.join(category_output_dir, f"{category_name}_CHG_data.csv")
     if os.path.exists(chg_input):
         extract_meth_data(features, chg_input, chg_output, "CHG")
@@ -212,7 +230,7 @@ def process_feature_category(category_name, feature_file, data_base_dir, output_
         print(f"\n  警告: CHG文件不存在 - {chg_input}")
     
     # 4. 处理CHH甲基化数据
-    chh_input = os.path.join(data_base_dir, "meth/CHH.CV.filter.bedGraph")
+    chh_input = os.path.join(data_base_dir, "meth/CHH.CV.before.bedGraph")
     chh_output = os.path.join(category_output_dir, f"{category_name}_CHH_data.csv")
     if os.path.exists(chh_input):
         extract_meth_data(features, chh_input, chh_output, "CHH")
@@ -221,9 +239,9 @@ def process_feature_category(category_name, feature_file, data_base_dir, output_
 
 def main():
     # 基础路径
-    base_path = "../../list/xgboot/TPM_4.5"
+    base_path = "../../list/xgboot/TPM_4.5_all"
     data_base_dir = "../../list"
-    output_dir = "../../list/xgboot/TPM_4.5/feature_data_extraction"
+    output_dir = "../../list/xgboot/TPM_4.5_all/feature_data_extraction"
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -232,13 +250,13 @@ def main():
     print("特征数据提取")
     print("=" * 60)
     
-    # 定义需要处理的特征文件
+    # 定义需要处理的import结果文件
     feature_categories = {
-        "A_TPM": f"{base_path}/A_TPM_optimization_results.txt",
-        "B_TPM": f"{base_path}/B_TPM_optimization_results.txt",
-        "total_TPM": f"{base_path}/total_TPM_optimization_results.txt",
-        "A_per_TPM": f"{base_path}/A_per_TPM_optimization_results.txt",
-        "B_per_TPM": f"{base_path}/B_per_TPM_optimization_results.txt"
+        "A_TPM": f"{base_path}/A_TPM_import_results.txt",
+        "B_TPM": f"{base_path}/B_TPM_import_results.txt",
+        "total_TPM": f"{base_path}/total_TPM_import_results.txt",
+        "A_per_TPM": f"{base_path}/A_per_TPM_import_results.txt",
+        "B_per_TPM": f"{base_path}/B_per_TPM_import_results.txt"
     }
     
     # 处理每个特征类别

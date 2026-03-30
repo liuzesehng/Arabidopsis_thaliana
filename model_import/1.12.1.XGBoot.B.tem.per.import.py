@@ -36,8 +36,8 @@ plt.rcParams.update({
 
 NAME_TPM = "B_per_TPM"
 TARGET_COLUMN = "β/%"
-MODEL_VERSION = "4.0"
-OUTPUT_PREFIX = "TPM_4.5_all"
+MODEL_VERSION = "1.0"
+OUTPUT_PREFIX = "TPM_1.5"
 FILTER_VALUES = [10, 16, 22]
 THRESHOLD_VALUE = 0
 TEST_SIZE = 0.2
@@ -46,7 +46,7 @@ RANDOM_STATE = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parents[1]
 LIST_DIR = PROJECT_DIR / "list"
-DATA_PATH = LIST_DIR / "RCA" / "Alt.all.snp_meth.filtered.tsv"
+DATA_PATH = LIST_DIR / "RCA" / "RCA.climate.tsv"
 
 
 def beeswarm_offsets(values, nbins=60, spread=0.8):

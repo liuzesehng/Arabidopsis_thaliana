@@ -22,7 +22,7 @@ rownames(rca_total) <- dataExprtotal$Name
 # 检查维度
 dim(rca_total)
 # rca_total
-#2.筛选方差前25%的基因##
+#2.筛选方差前75%的基因##
 # m.vars <- apply(rca_total,1,var)
 # rca_total.upper <- rca_total[which(m.vars > quantile(m.vars, probs = seq(0, 1, 0.25))[4]),]
 # dim(rca_total.upper)

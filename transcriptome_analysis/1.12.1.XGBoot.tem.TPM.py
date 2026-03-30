@@ -64,7 +64,7 @@ for filter_val in [10, 16, 22]:
     #data = df.dropna()
 
     # 划分特征和目标变量
-    x = df.drop(['tem', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
+    x = df.drop(['Temperature', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
     x = x.apply(pd.to_numeric, errors='coerce')
     y = df['total']
 
@@ -173,7 +173,7 @@ for filter_val in [10, 16, 22]:
     top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
     top_10_features = x_test.columns[top_10_indices].tolist()
 
-    threshold_value = 0.1
+    threshold_value = 0.01
 
     # 第一个最重要特征的贡献度
     first_feature_contribution = mean_abs_shap[top_10_indices[0]]

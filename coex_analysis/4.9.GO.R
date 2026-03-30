@@ -67,7 +67,7 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
   plot_data <- plot_data %>%
     mutate(
       # 截断长的Description以便显示
-      Description = str_wrap(Description, width = 40),
+      Description = str_wrap(Description, width = 34),
       # 计算富集比例
       GeneRatio_numeric = sapply(GeneRatio, function(x) {
         nums <- as.numeric(unlist(strsplit(x, "/")))
@@ -103,8 +103,8 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
     ) +
     theme_bw() +
     theme(
-      axis.text.y = element_text(size = 14, face = "bold", lineheight = 1.05, margin = margin(r = 12)),
-      axis.text.x = element_text(size = 13, angle = 30, hjust = 1, vjust = 1, face = "bold", margin = margin(t = 10)),
+      axis.text.y = element_text(size = 13, face = "bold", lineheight = 1.08, margin = margin(r = 12)),
+      axis.text.x = element_text(size = 14, angle = 30, hjust = 1, vjust = 1, face = "bold", margin = margin(t = 10)),
       axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 12)),
       axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 14)),
       strip.text = element_text(size = 16, face = "bold"),
@@ -112,7 +112,7 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
       legend.position = "right",
       legend.title = element_text(size = 14, face = "bold"),
       legend.text = element_text(size = 13, face = "bold"),
-      plot.margin = margin(t = 18, r = 22, b = 22, l = 24)
+      plot.margin = margin(t = 18, r = 24, b = 22, l = 28)
     ) +
     guides(
       size = guide_legend(override.aes = list(alpha = 1), title = "Gene Count"),
@@ -120,7 +120,7 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
     )
   
   output_file <- paste0(gsub("\\.txt$", "", output_prefix), ".GO.bubble_plot.pdf")
-  ggsave(output_file, plot = p, width = 20, height = 10, dpi = 1200)
+  ggsave(output_file, plot = p, width = 22, height = 11, dpi = 1200)
   
   cat(paste("GO合并气泡图已保存:", output_file, "\n"))
 }
@@ -132,7 +132,7 @@ genes <- read.delim('total/yellow_module_genes.txt', header = TRUE, stringsAsFac
 perform_enrichment(genes, 'total/total.gene_id')
 genes_module <- read.delim('total/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
 perform_enrichment(genes_module, 'total/total.gene_id_TF')
-genes_negative <- read.delim('total/negative_brown_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+genes_negative <- read.delim('total/negative_grey_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
 perform_enrichment(genes_negative, 'total/total.gene_id_negative')
 genes_negative_module <- read.delim('total/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
 perform_enrichment(genes_negative_module, 'total/total.gene_id_negative_TF')

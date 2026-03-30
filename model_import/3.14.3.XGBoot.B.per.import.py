@@ -36,15 +36,15 @@ plt.rcParams.update({
 
 NAME_TPM = "B_per_TPM"
 MODEL_VERSION = "4.0"
-THRESHOLD_VALUE = 0.1
+THRESHOLD_VALUE = 0
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parents[1]
 LIST_DIR = PROJECT_DIR / "list"
-DATA_PATH = LIST_DIR / "RCA" / "Alt.snp_meth.filtered.tsv"
-OUTPUT_DIR = LIST_DIR / "xgboot" / "TPM_4.5"
+DATA_PATH = LIST_DIR / "RCA" / "Alt.all.snp_meth.filtered.tsv"
+OUTPUT_DIR = LIST_DIR / "xgboot" / "TPM_4.5_all"
 MODEL_PATH = OUTPUT_DIR / f"my_model_{NAME_TPM}_{MODEL_VERSION}.json"
 RESULT_PATH = OUTPUT_DIR / f"{NAME_TPM}_import_results.txt"
 CHH_RESULT_PATH = OUTPUT_DIR / f"{NAME_TPM}_CHH_SHAP_summary.txt"
@@ -126,8 +126,8 @@ def write_results(
     first_feature_contribution,
     total_contribution,
     first_feature_percentage,
-    threshold_features,
-    threshold_feature_values,
+    all_features,
+    all_feature_contributions,
     top_80_features,
     top_80_contribution,
 ):
@@ -144,15 +144,11 @@ def write_results(
         f.write(f"  拟合优度 (R-squared): {r2:.6f}\n")
 
         f.write("\nSHAP阈值特征分析:\n")
-        f.write(f"  说明: 基于测试集 SHAP，阈值 = {THRESHOLD_VALUE}\n")
-        f.write(f"  mean(|SHAP|) > {THRESHOLD_VALUE} 的特征数量: {len(threshold_features)}\n")
-        f.write(f"  特征列表: {', '.join(threshold_features) if threshold_features else '无'}\n")
-        f.write("  特征及其平均|SHAP|值:\n")
-        if threshold_features:
-            for feature, value in zip(threshold_features, threshold_feature_values):
-                f.write(f"    {feature}: {value:.6f}\n")
-        else:
-            f.write("    无\n")
+        f.write("  说明: 基于测试集 SHAP\n")
+        f.write(f"  所有特征的 SHAP 贡献度总和: {total_contribution:.6f}\n")
+        f.write("  所有特征及其平均|SHAP|值:\n")
+        for feature, value in zip(all_features, all_feature_contributions):
+            f.write(f"    {feature}: {value:.6f}\n")
 
         f.write("\nSHAP特征重要性分析:\n")
         f.write(f"  前10个最重要特征: {', '.join(top_10_features)}\n")
@@ -376,9 +372,8 @@ def main():
     chh_percentage = (chh_total_contribution / total_contribution * 100) if total_contribution else 0.0
 
     sorted_indices = np.argsort(mean_abs_shap)[::-1]
-    threshold_indices = sorted_indices[mean_abs_shap[sorted_indices] > THRESHOLD_VALUE]
-    threshold_features = x_test.columns[threshold_indices].tolist()
-    threshold_feature_values = mean_abs_shap[threshold_indices]
+    all_features = x_test.columns[sorted_indices].tolist()
+    all_feature_contributions = mean_abs_shap[sorted_indices]
     sorted_contributions = mean_abs_shap[sorted_indices]
     cumulative_contribution = np.cumsum(sorted_contributions) / total_contribution * 100
 
@@ -387,7 +382,6 @@ def main():
     top_80_contribution = cumulative_contribution[threshold_80_idx]
 
     print(f"前10个最重要的特征: {top_10_features}")
-    print(f"mean(|SHAP|) > {THRESHOLD_VALUE} 的特征数量: {len(threshold_features)}")
     print(f"累计贡献度达到80%的特征数量: {len(top_80_features)}")
     print(f"CHH 特征 mean(|SHAP|) 总和: {chh_total_contribution}")
     print(f"CHH 特征贡献度百分比: {chh_percentage:.2f}%")
@@ -401,8 +395,8 @@ def main():
         first_feature_contribution,
         total_contribution,
         first_feature_percentage,
-        threshold_features,
-        threshold_feature_values,
+        all_features,
+        all_feature_contributions,
         top_80_features,
         top_80_contribution,
     )

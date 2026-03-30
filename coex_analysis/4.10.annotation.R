@@ -113,161 +113,99 @@ annotate_genes_with_tf_family <- function(gene_ids, tf_list_file) {
 }
 
 # ========================================
-# 处理 MCC.csv即gene_id.txt 文件
+# 处理 MCC.csv 文件
 # ========================================
-cat("正在处理 MCC.csvgene_id.txt 文件...\n")
+cat("正在处理 *.MCC.csv 文件...\n")
+
+process_mcc_file <- function(input_file, output_file) {
+  # 检查文件是否存在
+  if (!file.exists(input_file)) {
+    cat(sprintf("  文件不存在，跳过: %s\n", input_file))
+    return(invisible(NULL))
+  }
+  
+  cat(sprintf("  处理文件: %s\n", input_file))
+  
+  # 读取文件
+  mcc_data <- read.csv(input_file, header = TRUE, stringsAsFactors = FALSE)
+  
+  # 如果超过20行则只保留前20行，否则全部保留
+  if (nrow(mcc_data) > 20) {
+    mcc_data <- mcc_data[1:20, ]
+    cat(sprintf("    提取前20个基因进行注释\n"))
+  } else {
+    cat(sprintf("    共 %d 个基因，全部保留进行注释\n", nrow(mcc_data)))
+  }
+  
+  # 检查第一列是否存在
+  if (ncol(mcc_data) == 0) {
+    cat(sprintf("    警告: 文件为空或没有列\n"))
+    return(invisible(NULL))
+  }
+  
+  # 提取第一列的基因ID
+  gene_ids <- mcc_data[, 1]
+  
+  # 过滤和清理基因ID
+  gene_ids <- as.character(gene_ids)
+  gene_ids <- trimws(gene_ids)
+  gene_ids <- gene_ids[gene_ids != "" & !is.na(gene_ids)]
+  
+  if (length(gene_ids) == 0) {
+    cat(sprintf("    警告: 没有有效的基因ID\n"))
+    return(invisible(NULL))
+  }
+  
+  cat(sprintf("    有效基因ID数量: %d\n", length(gene_ids)))
+  
+  # 进行注释
+  tryCatch({
+    annotations <- annotate_genes(gene_ids)
+    
+    # 将注释结果与原始数据合并
+    # 通过第一列的基因ID进行匹配
+    colnames(mcc_data)[1] <- "Gene_ID"
+    
+    # 清理 mcc_data 中的基因ID
+    mcc_data$Gene_ID <- trimws(as.character(mcc_data$Gene_ID))
+    
+    annotated_data <- merge(mcc_data, annotations,
+                           by = "Gene_ID",
+                           all.x = TRUE,
+                           sort = FALSE)
+    
+    # 调整列的顺序：Gene_ID, Symbol, Gene_Name, GO_Term, GO_Name
+    final_cols <- c("Gene_ID", "Symbol", "Gene_Name", "GO_Term", "GO_Name")
+    annotated_data <- annotated_data[, final_cols]
+    
+    # 保存注释后的文件
+    write.table(annotated_data, output_file, row.names = FALSE, sep = "\t", quote = FALSE)
+    
+    cat(sprintf("    -> 保存到: %s\n", output_file))
+    cat(sprintf("    -> 注释了 %d 个基因\n", nrow(annotated_data)))
+  }, error = function(e) {
+    cat(sprintf("    错误: %s\n", e$message))
+    cat(sprintf("    跳过该文件\n"))
+  })
+}
 
 # 定义需要处理的温度条件
 temperatures <- c("10C", "16C", "22C", "total")
 
 for (temp in temperatures) {
-  mcc_file <- file.path(temp, paste0(temp, ".gene_id.txt"))
-  
-  # 检查文件是否存在
-  if (file.exists(mcc_file)) {
-    cat(sprintf("  处理文件: %s\n", mcc_file))
-    
-    # 读取文件
-    mcc_data <- read.table(mcc_file, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
-    
-    # 如果超过20行则只保留前20行，否则全部保留
-    if (nrow(mcc_data) > 20) {
-      mcc_data <- mcc_data[1:20, ]
-      cat(sprintf("    提取前20个基因进行注释\n"))
-    } else {
-      cat(sprintf("    共 %d 个基因，全部保留进行注释\n", nrow(mcc_data)))
-    }
-    
-    # 检查第一列是否存在
-    if (ncol(mcc_data) > 0) {
-      # 提取第一列的基因ID
-      gene_ids <- mcc_data[, 1]
-      
-      # 过滤和清理基因ID
-      gene_ids <- as.character(gene_ids)
-      gene_ids <- trimws(gene_ids)
-      gene_ids <- gene_ids[gene_ids != "" & !is.na(gene_ids)]
-      
-      if (length(gene_ids) == 0) {
-        cat(sprintf("    警告: 没有有效的基因ID\n"))
-        next
-      }
-      
-      cat(sprintf("    有效基因ID数量: %d\n", length(gene_ids)))
-      
-      # 进行注释
-      tryCatch({
-        annotations <- annotate_genes(gene_ids)
-        
-        # 将注释结果与原始数据合并
-        # 通过第一列的基因ID进行匹配
-        colnames(mcc_data)[1] <- "Gene_ID"  # 重命名第一列以便合并
-        
-        # 清理mcc_data中的基因ID
-        mcc_data$Gene_ID <- trimws(as.character(mcc_data$Gene_ID))
-        
-        annotated_data <- merge(mcc_data, annotations, 
-                               by = "Gene_ID", 
-                               all.x = TRUE, 
-                               sort = FALSE)
-        
-        # 调整列的顺序：Gene_ID, Symbol, Gene_Name, GO_Term, GO_Name
-        final_cols <- c("Gene_ID", "Symbol", "Gene_Name", "GO_Term", "GO_Name")
-        annotated_data <- annotated_data[, final_cols]
-        
-        # 保存注释后的文件
-        output_file <- file.path(temp, paste0(temp, ".MCC.annotated.txt"))
-        write.table(annotated_data, output_file, row.names = FALSE, sep = "\t", quote = FALSE)
-        
-        cat(sprintf("    -> 保存到: %s\n", output_file))
-        cat(sprintf("    -> 注释了 %d 个基因\n", nrow(annotated_data)))
-      }, error = function(e) {
-        cat(sprintf("    错误: %s\n", e$message))
-        cat(sprintf("    跳过该文件\n"))
-      })
-    } else {
-      cat(sprintf("    警告: 文件为空或没有列\n"))
-    }
-  } else {
-    cat(sprintf("  文件不存在，跳过: %s\n", mcc_file))
-  }
+  process_mcc_file(
+    input_file = file.path(temp, paste0(temp, ".MCC.csv")),
+    output_file = file.path(temp, paste0(temp, ".MCC.annotated.txt"))
+  )
 }
 
 cat("\n")
 
-temperatures <- c("10C", "16C", "22C", "total")
-
 for (temp in temperatures) {
-  mcc_file <- file.path(temp, paste0(temp, ".negative.gene_id.txt"))
-  
-  # 检查文件是否存在
-  if (file.exists(mcc_file)) {
-    cat(sprintf("  处理文件: %s\n", mcc_file))
-    
-    # 读取文件
-    mcc_data <- read.table(mcc_file, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
-    
-    # 如果超过20行则只保留前20行，否则全部保留
-    if (nrow(mcc_data) > 20) {
-      mcc_data <- mcc_data[1:20, ]
-      cat(sprintf("    提取前20个基因进行注释\n"))
-    } else {
-      cat(sprintf("    共 %d 个基因，全部保留进行注释\n", nrow(mcc_data)))
-    }
-    
-    # 检查第一列是否存在
-    if (ncol(mcc_data) > 0) {
-      # 提取第一列的基因ID
-      gene_ids <- mcc_data[, 1]
-      
-      # 过滤和清理基因ID
-      gene_ids <- as.character(gene_ids)
-      gene_ids <- trimws(gene_ids)
-      gene_ids <- gene_ids[gene_ids != "" & !is.na(gene_ids)]
-      
-      if (length(gene_ids) == 0) {
-        cat(sprintf("    警告: 没有有效的基因ID\n"))
-        next
-      }
-      
-      cat(sprintf("    有效基因ID数量: %d\n", length(gene_ids)))
-      
-      # 进行注释
-      tryCatch({
-        annotations <- annotate_genes(gene_ids)
-        
-        # 将注释结果与原始数据合并
-        # 通过第一列的基因ID进行匹配
-        colnames(mcc_data)[1] <- "Gene_ID"  # 重命名第一列以便合并
-        
-        # 清理mcc_data中的基因ID
-        mcc_data$Gene_ID <- trimws(as.character(mcc_data$Gene_ID))
-        
-        annotated_data <- merge(mcc_data, annotations, 
-                               by = "Gene_ID", 
-                               all.x = TRUE, 
-                               sort = FALSE)
-        
-        # 调整列的顺序：Gene_ID, Symbol, Gene_Name, GO_Term, GO_Name
-        final_cols <- c("Gene_ID", "Symbol", "Gene_Name", "GO_Term", "GO_Name")
-        annotated_data <- annotated_data[, final_cols]
-        
-        # 保存注释后的文件
-        output_file <- file.path(temp, paste0(temp, ".negative.MCC.annotated.txt"))
-        write.table(annotated_data, output_file, row.names = FALSE, sep = "\t", quote = FALSE)
-        
-        cat(sprintf("    -> 保存到: %s\n", output_file))
-        cat(sprintf("    -> 注释了 %d 个基因\n", nrow(annotated_data)))
-      }, error = function(e) {
-        cat(sprintf("    错误: %s\n", e$message))
-        cat(sprintf("    跳过该文件\n"))
-      })
-    } else {
-      cat(sprintf("    警告: 文件为空或没有列\n"))
-    }
-  } else {
-    cat(sprintf("  文件不存在，跳过: %s\n", mcc_file))
-  }
+  process_mcc_file(
+    input_file = file.path(temp, paste0(temp, ".negative.MCC.csv")),
+    output_file = file.path(temp, paste0(temp, ".negative.MCC.annotated.txt"))
+  )
 }
 
 cat("\n")
@@ -284,10 +222,10 @@ tf_list_file <- "Ath_TF_list.txt"
 tf_files <- list(
   "10C" = file.path("10C", "gene.TF_ids.txt"),
   "10C.negative" = file.path("10C", "gene.TF_negative_ids.txt"),
-  "16C" = file.path("16C", "gene.TF_ids.txt"),
-  "22C.negative" = file.path("22C", "gene.TF_negative_ids.txt"),
+  "22C" = file.path("22C", "gene.TF_ids.txt"),
   "total" = file.path("total", "gene.TF_ids.txt"),
-  "total.negative" = file.path("total", "gene.TF_negative_ids.txt")
+  "total.negative" = file.path("total", "gene.TF_negative_ids.txt"),
+  "total.other" = file.path("total", "gene.TF_other_ids.txt")
 )
 
 for (name in names(tf_files)) {
@@ -391,7 +329,7 @@ for (name in names(tf_module_files)) {
     # 检查第二列是否存在
     if (ncol(tf_module_data) > 1) {
       # 提取第二列的基因ID
-      gene_ids <- tf_module_data[, 2]
+      gene_ids <- tf_module_data[, 1]
       
       # 过滤和清理基因ID
       gene_ids <- as.character(gene_ids)
@@ -410,7 +348,7 @@ for (name in names(tf_module_files)) {
         annotations <- annotate_genes_with_tf_family(gene_ids, tf_list_file)
         
         # 将注释结果与原始数据合并
-        colnames(tf_module_data)[2] <- "Gene_ID"  # 重命名第二列以便合并
+        colnames(tf_module_data)[1] <- "Gene_ID"  # 重命名第一列以便合并
         
         # 清理tf_module_data中的基因ID
         tf_module_data$Gene_ID <- trimws(as.character(tf_module_data$Gene_ID))
@@ -445,5 +383,4 @@ for (name in names(tf_module_files)) {
 }
 
 cat("\n所有文件处理完成！\n")
-
 

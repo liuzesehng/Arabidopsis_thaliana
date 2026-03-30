@@ -34,10 +34,10 @@ plt.rcParams.update({
     "legend.fontsize": LEGEND_FONT_SIZE,
 })
 
-NAME_TPM = "B_per_TPM"
-TARGET_COLUMN = "β/%"
-MODEL_VERSION = "4.0"
-OUTPUT_PREFIX = "TPM_4.5_all"
+NAME_TPM = "A_per_TPM"
+TARGET_COLUMN = "α/%"
+MODEL_VERSION = "1.0"
+OUTPUT_PREFIX = "TPM_1.5"
 FILTER_VALUES = [10, 16, 22]
 THRESHOLD_VALUE = 0
 TEST_SIZE = 0.2
@@ -46,7 +46,7 @@ RANDOM_STATE = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parents[1]
 LIST_DIR = PROJECT_DIR / "list"
-DATA_PATH = LIST_DIR / "RCA" / "Alt.all.snp_meth.filtered.tsv"
+DATA_PATH = LIST_DIR / "RCA" / "RCA.climate.tsv"
 
 
 def beeswarm_offsets(values, nbins=60, spread=0.8):
@@ -313,7 +313,7 @@ def plot_prediction_scatter(output_dir, filter_val, y_test, y_pred, r2, mae):
         label=f"Line of Best Fit\n$R^2$ = {r2:.2f}, MAE = {mae:.2f}",
     )
 
-    plt.title(rf'Rca $\beta$% ({filter_val:g}$^\circ$C)', fontsize=TITLE_FONT_SIZE)
+    plt.title(rf'Rca $\alpha$% ({filter_val:g}$^\circ$C)', fontsize=TITLE_FONT_SIZE)
     plt.xlabel("Actual Values", fontsize=LABEL_FONT_SIZE)
     plt.ylabel("Predicted Values", fontsize=LABEL_FONT_SIZE)
     plt.xticks(fontsize=TICK_FONT_SIZE)

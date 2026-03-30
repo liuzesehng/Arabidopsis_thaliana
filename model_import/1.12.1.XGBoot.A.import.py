@@ -34,11 +34,8 @@ plt.rcParams.update({
     "legend.fontsize": LEGEND_FONT_SIZE,
 })
 
-NAME_TPM = "B_per_TPM"
-TARGET_COLUMN = "β/%"
-MODEL_VERSION = "4.0"
-OUTPUT_PREFIX = "TPM_4.5_all"
-FILTER_VALUES = [10, 16, 22]
+NAME_TPM = "A_TPM"
+MODEL_VERSION = "1.0"
 THRESHOLD_VALUE = 0
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
@@ -46,7 +43,11 @@ RANDOM_STATE = 42
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parents[1]
 LIST_DIR = PROJECT_DIR / "list"
-DATA_PATH = LIST_DIR / "RCA" / "Alt.all.snp_meth.filtered.tsv"
+DATA_PATH = LIST_DIR / "RCA" / "RCA.climate.tsv"
+OUTPUT_DIR = LIST_DIR / "xgboot" / "TPM_1.5"
+MODEL_PATH = OUTPUT_DIR / f"my_model_{NAME_TPM}_{MODEL_VERSION}.json"
+RESULT_PATH = OUTPUT_DIR / f"{NAME_TPM}_import_results.txt"
+CHH_RESULT_PATH = OUTPUT_DIR / f"{NAME_TPM}_CHH_SHAP_summary.txt"
 
 
 def beeswarm_offsets(values, nbins=60, spread=0.8):
@@ -74,22 +75,22 @@ def beeswarm_offsets(values, nbins=60, spread=0.8):
     return offsets
 
 
-def get_filter_column(df):
-    for candidate in ("Temperature", "tem"):
-        if candidate in df.columns:
-            return candidate
-    return df.columns[0]
+def prepare_data():
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(f"Input data not found: {DATA_PATH}")
 
+    df = pd.read_csv(DATA_PATH, sep="\t")
 
-def prepare_group_data(df_all, filter_column, filter_val):
-    df = df_all[df_all[filter_column] == filter_val].copy()
-    if df.empty:
-        return None, None
+    cols_to_log = ["total", "α", "β", "β1", "β2"]
+    cols_to_transform = [col for col in cols_to_log if col in df.columns]
+    df[cols_to_transform] = np.log1p(df[cols_to_transform])
 
-    drop_columns = [filter_column, "total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"]
-    x = df.drop(columns=[col for col in drop_columns if col in df.columns])
+    x = df.drop(
+        ["total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"],
+        axis=1,
+    )
     x = x.apply(pd.to_numeric, errors="coerce")
-    y = df[TARGET_COLUMN]
+    y = df["α"]
 
     _, x_test, _, y_test = train_test_split(
         x,
@@ -109,13 +110,14 @@ def align_features(model, x_test):
     if missing:
         raise ValueError(f"Missing features required by model: {missing}")
 
+    extra = [feature for feature in x_test.columns if feature not in model_feature_names]
+    if extra:
+        print(f"Warning: ignoring extra columns not used by model: {extra}")
+
     return x_test.loc[:, model_feature_names]
 
 
 def write_results(
-    result_path,
-    model_path,
-    filter_val,
     mse,
     rmse,
     mae,
@@ -129,10 +131,10 @@ def write_results(
     top_80_features,
     top_80_contribution,
 ):
-    with open(result_path, "w", encoding="utf-8") as f:
-        f.write(f"=== {NAME_TPM} 导入模型结果 (Group {filter_val}) ===\n\n")
+    with open(RESULT_PATH, "w", encoding="utf-8") as f:
+        f.write(f"=== {NAME_TPM} 导入模型结果 ===\n\n")
         f.write(f"数据文件: {DATA_PATH}\n")
-        f.write(f"模型文件: {model_path}\n")
+        f.write(f"模型文件: {MODEL_PATH}\n")
         f.write(f"测试集划分: test_size={TEST_SIZE}, random_state={RANDOM_STATE}\n\n")
 
         f.write("测试集预测结果:\n")
@@ -161,18 +163,15 @@ def write_results(
 
 
 def write_chh_results(
-    chh_result_path,
-    model_path,
-    filter_val,
     chh_features,
     chh_total_contribution,
     chh_percentage,
     total_contribution,
 ):
-    with open(chh_result_path, "w", encoding="utf-8") as f:
-        f.write(f"=== {NAME_TPM} CHH SHAP 汇总 (Group {filter_val}) ===\n\n")
+    with open(CHH_RESULT_PATH, "w", encoding="utf-8") as f:
+        f.write(f"=== {NAME_TPM} CHH SHAP 汇总 ===\n\n")
         f.write(f"数据文件: {DATA_PATH}\n")
-        f.write(f"模型文件: {model_path}\n\n")
+        f.write(f"模型文件: {MODEL_PATH}\n\n")
         f.write(f"所有特征 mean(|SHAP|) 总和: {total_contribution:.6f}\n")
         f.write(f"以 CHH 开头的特征数量: {len(chh_features)}\n")
         f.write(f"以 CHH 开头的特征 mean(|SHAP|) 总和: {chh_total_contribution:.6f}\n")
@@ -180,8 +179,8 @@ def write_chh_results(
         f.write(f"CHH 特征列表: {', '.join(chh_features) if chh_features else '无'}\n")
 
 
-def plot_combined_shap(output_dir, x_test, shap_values_numpy, sorted_indices, mean_abs_shap):
-    max_display = min(15, x_test.shape[1])
+def plot_combined_shap(x_test, shap_values_numpy, sorted_indices, mean_abs_shap):
+    max_display = min(10, x_test.shape[1])
     plot_indices = sorted_indices[:max_display]
     plot_features = x_test.columns[plot_indices].tolist()
     plot_mean_abs_shap = mean_abs_shap[plot_indices]
@@ -257,14 +256,14 @@ def plot_combined_shap(output_dir, x_test, shap_values_numpy, sorted_indices, me
     colorbar.outline.set_visible(False)
 
     fig.savefig(
-        output_dir / f"SHAP_combined_{NAME_TPM}_{MODEL_VERSION}.pdf",
+        OUTPUT_DIR / f"SHAP_combined_{NAME_TPM}_{MODEL_VERSION}.pdf",
         format="pdf",
         bbox_inches="tight",
     )
     plt.close(fig)
 
 
-def plot_dependence(output_dir, top_10_features, shap_values_explanation, x_test):
+def plot_dependence(top_10_features, shap_values_explanation, x_test):
     for feature in top_10_features:
         shap.dependence_plot(
             feature,
@@ -289,7 +288,7 @@ def plot_dependence(output_dir, top_10_features, shap_values_explanation, x_test
 
         safe_feature_name = feature.replace("/", "_").replace("\\", "_")
         plt.savefig(
-            output_dir / f"SHAP_Dependence_{safe_feature_name}_{NAME_TPM}_{MODEL_VERSION}.pdf",
+            OUTPUT_DIR / f"SHAP_Dependence_{safe_feature_name}_{NAME_TPM}_{MODEL_VERSION}.pdf",
             format="pdf",
             bbox_inches="tight",
             dpi=1200,
@@ -297,7 +296,7 @@ def plot_dependence(output_dir, top_10_features, shap_values_explanation, x_test
         plt.close()
 
 
-def plot_prediction_scatter(output_dir, filter_val, y_test, y_pred, r2, mae):
+def plot_prediction_scatter(y_test, y_pred, r2, mae):
     plt.figure(figsize=(8, 6), dpi=1200)
     plt.scatter(y_test, y_pred, color="#f4ba8a", label="Predicted", alpha=0.2)
     max_value = max(max(y_test), max(y_pred))
@@ -310,17 +309,17 @@ def plot_prediction_scatter(output_dir, filter_val, y_test, y_pred, r2, mae):
         p(y_test),
         color="#b4d4e1",
         alpha=0.6,
-        label=f"Line of Best Fit\n$R^2$ = {r2:.2f}, MAE = {mae:.2f}",
+        label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}",
     )
 
-    plt.title(rf'Rca $\beta$% ({filter_val:g}$^\circ$C)', fontsize=TITLE_FONT_SIZE)
+    plt.title(r'Expression level of Rca $\alpha$', fontsize=TITLE_FONT_SIZE)
     plt.xlabel("Actual Values", fontsize=LABEL_FONT_SIZE)
     plt.ylabel("Predicted Values", fontsize=LABEL_FONT_SIZE)
     plt.xticks(fontsize=TICK_FONT_SIZE)
     plt.yticks(fontsize=TICK_FONT_SIZE)
     plt.legend(loc="upper left", fontsize=LEGEND_FONT_SIZE)
     plt.savefig(
-        output_dir / f"{NAME_TPM}_{MODEL_VERSION}.pdf",
+        OUTPUT_DIR / f"{NAME_TPM}_{MODEL_VERSION}.pdf",
         format="pdf",
         bbox_inches="tight",
         dpi=1200,
@@ -329,113 +328,90 @@ def plot_prediction_scatter(output_dir, filter_val, y_test, y_pred, r2, mae):
 
 
 def main():
-    if not DATA_PATH.exists():
-        raise FileNotFoundError(f"Input data not found: {DATA_PATH}")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    df_all = pd.read_csv(DATA_PATH, sep="\t")
-    cols_to_log = ["total", "α", "β", "β1", "β2"]
-    cols_to_transform = [col for col in cols_to_log if col in df_all.columns]
-    df_all[cols_to_transform] = np.log1p(df_all[cols_to_transform])
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
 
-    filter_column = get_filter_column(df_all)
+    print(f"Using data file: {DATA_PATH}")
+    print(f"Using model file: {MODEL_PATH}")
 
-    for filter_val in FILTER_VALUES:
-        output_dir = LIST_DIR / "xgboot" / f"{OUTPUT_PREFIX}_{filter_val}"
-        model_path = output_dir / f"my_model_{NAME_TPM}_{MODEL_VERSION}.json"
-        result_path = output_dir / f"{NAME_TPM}_import_results.txt"
-        chh_result_path = output_dir / f"{NAME_TPM}_CHH_SHAP_summary.txt"
+    x_test, y_test = prepare_data()
 
-        print(f"Processing group {filter_val}")
-        print(f"Using data file: {DATA_PATH}")
-        print(f"Using model file: {model_path}")
+    model = xgb.XGBRegressor()
+    model.load_model(MODEL_PATH)
+    x_test = align_features(model, x_test)
 
-        if not model_path.exists():
-            print(f"Skipping group {filter_val}: model not found.")
-            continue
+    y_pred = model.predict(x_test)
+    mse = metrics.mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    mae = metrics.mean_absolute_error(y_test, y_pred)
+    r2 = metrics.r2_score(y_test, y_pred)
 
-        output_dir.mkdir(parents=True, exist_ok=True)
-        x_test, y_test = prepare_group_data(df_all, filter_column, filter_val)
-        if x_test is None:
-            print(f"Skipping group {filter_val}: no matching rows.")
-            continue
+    print(f"{NAME_TPM} 导入模型预测结果:")
+    print("均方误差 (MSE):", mse)
+    print("均方根误差 (RMSE):", rmse)
+    print("平均绝对误差 (MAE):", mae)
+    print("拟合优度 (R-squared):", r2)
 
-        model = xgb.XGBRegressor()
-        model.load_model(model_path)
-        x_test = align_features(model, x_test)
+    explainer = shap.TreeExplainer(model)
+    shap_values_numpy = explainer.shap_values(x_test)
+    shap_values_explanation = explainer(x_test)
 
-        y_pred = model.predict(x_test)
-        mse = metrics.mean_squared_error(y_test, y_pred)
-        rmse = np.sqrt(mse)
-        mae = metrics.mean_absolute_error(y_test, y_pred)
-        r2 = metrics.r2_score(y_test, y_pred)
+    mean_abs_shap = np.abs(shap_values_numpy).mean(axis=0)
+    top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
+    top_10_features = x_test.columns[top_10_indices].tolist()
 
-        print(f"{NAME_TPM} ({filter_val}) 导入模型预测结果:")
-        print("均方误差 (MSE):", mse)
-        print("均方根误差 (RMSE):", rmse)
-        print("平均绝对误差 (MAE):", mae)
-        print("拟合优度 (R-squared):", r2)
+    first_feature_contribution = mean_abs_shap[top_10_indices[0]]
+    total_contribution = mean_abs_shap.sum()
+    first_feature_percentage = (first_feature_contribution / total_contribution) * 100
 
-        explainer = shap.TreeExplainer(model)
-        shap_values_numpy = explainer.shap_values(x_test)
-        shap_values_explanation = explainer(x_test)
+    chh_mask = x_test.columns.str.startswith("CHH")
+    chh_features = x_test.columns[chh_mask].tolist()
+    chh_total_contribution = mean_abs_shap[chh_mask].sum()
+    chh_percentage = (chh_total_contribution / total_contribution * 100) if total_contribution else 0.0
 
-        mean_abs_shap = np.abs(shap_values_numpy).mean(axis=0)
-        top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
-        top_10_features = x_test.columns[top_10_indices].tolist()
+    sorted_indices = np.argsort(mean_abs_shap)[::-1]
+    all_features = x_test.columns[sorted_indices].tolist()
+    all_feature_contributions = mean_abs_shap[sorted_indices]
+    sorted_contributions = mean_abs_shap[sorted_indices]
+    cumulative_contribution = np.cumsum(sorted_contributions) / total_contribution * 100
 
-        first_feature_contribution = mean_abs_shap[top_10_indices[0]]
-        total_contribution = mean_abs_shap.sum()
-        first_feature_percentage = (first_feature_contribution / total_contribution) * 100
-        chh_mask = x_test.columns.str.startswith("CHH")
-        chh_features = x_test.columns[chh_mask].tolist()
-        chh_total_contribution = mean_abs_shap[chh_mask].sum()
-        chh_percentage = (chh_total_contribution / total_contribution * 100) if total_contribution else 0.0
+    threshold_80_idx = np.where(cumulative_contribution >= 80)[0][0]
+    top_80_features = x_test.columns[sorted_indices[: threshold_80_idx + 1]].tolist()
+    top_80_contribution = cumulative_contribution[threshold_80_idx]
 
-        sorted_indices = np.argsort(mean_abs_shap)[::-1]
-        all_features = x_test.columns[sorted_indices].tolist()
-        all_feature_contributions = mean_abs_shap[sorted_indices]
-        sorted_contributions = mean_abs_shap[sorted_indices]
-        cumulative_contribution = np.cumsum(sorted_contributions) / total_contribution * 100
+    print(f"前10个最重要的特征: {top_10_features}")
+    print(f"累计贡献度达到80%的特征数量: {len(top_80_features)}")
+    print(f"CHH 特征 mean(|SHAP|) 总和: {chh_total_contribution}")
+    print(f"CHH 特征贡献度百分比: {chh_percentage:.2f}%")
 
-        threshold_80_idx = np.where(cumulative_contribution >= 80)[0][0]
-        top_80_features = x_test.columns[sorted_indices[: threshold_80_idx + 1]].tolist()
-        top_80_contribution = cumulative_contribution[threshold_80_idx]
+    write_results(
+        mse,
+        rmse,
+        mae,
+        r2,
+        top_10_features,
+        first_feature_contribution,
+        total_contribution,
+        first_feature_percentage,
+        all_features,
+        all_feature_contributions,
+        top_80_features,
+        top_80_contribution,
+    )
+    write_chh_results(
+        chh_features,
+        chh_total_contribution,
+        chh_percentage,
+        total_contribution,
+    )
+    plot_combined_shap(x_test, shap_values_numpy, sorted_indices, mean_abs_shap)
+    plot_dependence(top_10_features, shap_values_explanation, x_test)
+    plot_prediction_scatter(y_test, y_pred, r2, mae)
 
-        print(f"CHH 特征 mean(|SHAP|) 总和: {chh_total_contribution}")
-        print(f"CHH 特征贡献度百分比: {chh_percentage:.2f}%")
-
-        write_results(
-            result_path,
-            model_path,
-            filter_val,
-            mse,
-            rmse,
-            mae,
-            r2,
-            top_10_features,
-            first_feature_contribution,
-            total_contribution,
-            first_feature_percentage,
-            all_features,
-            all_feature_contributions,
-            top_80_features,
-            top_80_contribution,
-        )
-        write_chh_results(
-            chh_result_path,
-            model_path,
-            filter_val,
-            chh_features,
-            chh_total_contribution,
-            chh_percentage,
-            total_contribution,
-        )
-        plot_combined_shap(output_dir, x_test, shap_values_numpy, sorted_indices, mean_abs_shap)
-        plot_dependence(output_dir, top_10_features, shap_values_explanation, x_test)
-        plot_prediction_scatter(output_dir, filter_val, y_test, y_pred, r2, mae)
-
-        print(f"Finished group {filter_val}. Results written to: {result_path}")
-        print(f"CHH summary written to: {chh_result_path}")
+    print(f"Import plotting finished. Results written to: {RESULT_PATH}")
+    print(f"CHH summary written to: {CHH_RESULT_PATH}")
 
 
 if __name__ == "__main__":

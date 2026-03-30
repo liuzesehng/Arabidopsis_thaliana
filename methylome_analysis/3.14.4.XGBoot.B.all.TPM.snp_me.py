@@ -29,7 +29,7 @@ plt.rcParams.update({
 })
 
 # 定义变量名
-name_TPM = "total_TPM"
+name_TPM = "B_TPM"
 
 # 读取原始数据
 df = pd.read_csv('../RCA/Alt.all.snp_meth.filtered.tsv', sep='\t')
@@ -55,7 +55,7 @@ df.isnull().sum()
 # 划分特征和目标变量
 x = df.drop(['Temperature', 'total', 'α', 'β', 'β1', 'β2', "α/%", "β/%", "β1/%", "β2/%"], axis=1)
 x = x.apply(pd.to_numeric, errors='coerce')
-y = df['total']
+y = df['β']
 
 # 划分训练集和测试集
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
@@ -162,7 +162,7 @@ mean_abs_shap = np.abs(shap_values_numpy).mean(axis=0)
 top_10_indices = np.argsort(mean_abs_shap)[-10:][::-1]
 top_10_features = x_test.columns[top_10_indices].tolist()
 
-threshold_value = 0.1
+threshold_value = 0
 
 # 第一个最重要特征的贡献度
 first_feature_contribution = mean_abs_shap[top_10_indices[0]]
@@ -369,7 +369,7 @@ p = np.poly1d(z)
 plt.plot(y_test, p(y_test), color='#b4d4e1', alpha=0.6,          
             label=f"Line of Best Fit\n$R^2$ = {r2:.2f},MAE = {mae:.2f}")
 
-plt.title(f'Total expression level of Rca', fontsize=TITLE_FONT_SIZE)
+plt.title(r'Expression level of Rca $\beta$', fontsize=TITLE_FONT_SIZE)
 plt.xlabel('Actual Values', fontsize=LABEL_FONT_SIZE)
 plt.ylabel('Predicted Values', fontsize=LABEL_FONT_SIZE)
 plt.xticks(fontsize=TICK_FONT_SIZE)
@@ -379,6 +379,7 @@ plt.legend(loc="upper left", fontsize=LEGEND_FONT_SIZE)
 plt.savefig(f'{output_dir}/{name_TPM}_4.0.pdf', format='pdf', bbox_inches='tight', dpi=1200)  # 保存特征重要性图
 plt.show()
 plt.close()
+
 
 # 保存模型
 best_model.save_model(f'{output_dir}/my_model_{name_TPM}_4.0.json')
