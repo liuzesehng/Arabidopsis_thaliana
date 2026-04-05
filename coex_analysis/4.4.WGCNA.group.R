@@ -116,7 +116,6 @@ net <- blockwiseModules(rca_total, power = 16, maxBlockSize = 20000,,networkType
 table(net$colors)
 
 #7.模块可视化
-## 灰色的为**未分类**到模块的基因。
 # Convert labels to colors for plotting
 moduleLabels = net$colors
 moduleColors = labels2colors(moduleLabels)

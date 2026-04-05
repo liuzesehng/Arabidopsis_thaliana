@@ -353,11 +353,6 @@ def plot_dataset(
     ax.set_xlim(gene_model.start - FLANK_BP, gene_model.end + FLANK_BP)
     ax.set_ylim(0.5, 7.8)
     add_region_background(ax, gene_model)
-    region_centers = {
-        "upstream": gene_model.end + FLANK_BP / 2 if gene_model.strand == "-" else gene_model.start - FLANK_BP / 2,
-        "gene_body": (gene_model.start + gene_model.end) / 2,
-        "downstream": gene_model.start - FLANK_BP / 2 if gene_model.strand == "-" else gene_model.end + FLANK_BP / 2,
-    }
 
     transcript_y = [7.0, 6.2, 5.4]
     for transcript, y_pos in zip(gene_model.transcripts, transcript_y):
@@ -392,20 +387,6 @@ def plot_dataset(
         context: stats_df[stats_df["context"] == context].set_index("region_class").reindex(REGION_ORDER)
         for context in CONTEXT_ORDER
     }
-    for context, y_pos in context_y.items():
-        context_df = context_stats[context]
-        for region in REGION_ORDER:
-            ax.text(
-                region_centers[region],
-                y_pos + 0.28,
-                f"{context_df.loc[region, 'feature_percent']:.2f}%",
-                ha="center",
-                va="bottom",
-                fontsize=10.5,
-                color="#222222",
-                bbox={"boxstyle": "round,pad=0.15", "facecolor": "white", "edgecolor": "none", "alpha": 0.7},
-                zorder=8,
-            )
 
     legend_handles = [
         plt.Line2D(
@@ -428,6 +409,45 @@ def plot_dataset(
         fontsize=11,
         title_fontsize=12,
     )
+
+    inset_ax = fig.add_axes([0.77, 0.62, 0.21, 0.27])
+    x = list(range(len(CONTEXT_ORDER)))
+    bar_width = 0.22
+    region_offsets = {"upstream": -bar_width, "gene_body": 0.0, "downstream": bar_width}
+
+    for region in REGION_ORDER:
+        heights = [float(context_stats[context].loc[region, "feature_percent"]) for context in CONTEXT_ORDER]
+        bar_positions = [idx + region_offsets[region] for idx in x]
+        bars = inset_ax.bar(
+            bar_positions,
+            heights,
+            width=bar_width,
+            color=REGION_COLORS[region],
+            edgecolor="#333333",
+            linewidth=0.5,
+        )
+        for bar, height in zip(bars, heights):
+            inset_ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + 1.5,
+                f"{height:.1f}",
+                ha="center",
+                va="bottom",
+                fontsize=7.5,
+                color="#222222",
+            )
+
+    inset_ax.set_xticks(x)
+    inset_ax.set_xticklabels(["CHH", "CHG", "CG", "SNP"], fontsize=9)
+    inset_ax.text(0.0, 1.03, "%", transform=inset_ax.transAxes, ha="center", va="bottom", fontsize=9)
+    inset_ax.set_title("Feature Percent", fontsize=10)
+    inset_ax.tick_params(axis="y", labelsize=8)
+    inset_ax.set_ylim(0, 110)
+    inset_ax.grid(axis="y", color="#D8D8D8", linewidth=0.6, alpha=0.8)
+    inset_ax.set_axisbelow(True)
+    inset_ax.set_facecolor("white")
+    for spine in ["top", "right"]:
+        inset_ax.spines[spine].set_visible(False)
 
     formatter = ScalarFormatter(useOffset=False)
     formatter.set_scientific(False)

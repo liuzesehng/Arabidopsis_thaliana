@@ -453,7 +453,7 @@ def plot_tf_set(
 
     add_temperature_legend(ax)
     ax.set_xlabel("Symbol", fontsize=12)
-    ax.set_ylabel("log1p(TPM)", fontsize=12)
+    ax.set_ylabel("ln(TPM+1)", fontsize=12)
     ax.tick_params(axis="x", rotation=0)
 
     fig.subplots_adjust(right=0.8)

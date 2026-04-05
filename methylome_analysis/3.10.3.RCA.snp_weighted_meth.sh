@@ -1,4 +1,19 @@
 #!/bin/bash
+# # 定义处理每个文件对或单文件的函数
+# process_cx() {
+#     local file="$1"
+    
+# 	pref=${file/.txt/}
+#     awk '$1 == "NC_003071.7" && $2 >= 16568746 && $2 <= 16575692' $file > $pref.RCA.promoter_terminator.txt
+
+# }
+
+# # 导出函数以便 GNU Parallel 使用
+# export -f process_cx
+
+# # 找出所有需要处理的文件
+# parallel -j 64 process_cx ::: $(ls */bismark/*/*CX_report.txt)
+
 # 初始化列名数组
 columns=("Temperature")
 
@@ -27,16 +42,18 @@ done
 
 columns+=("total" "α" "β" "β1" "β2" "α/%" "β/%" "β1/%" "β2/%")
 # 写入表头
-echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.all.snp_meth.tsv
+echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.weighted.snp_meth.tsv
 
-# 定义函数处理 bedGraph 文件
-process_bedgraph() {
-    local prefix=$1  # CG, CHG, CHH
-    local max=$2     # 最大迭代数
-    local folder=$3  # 文件夹路径
+# 定义函数处理 cx 文件
+process_cx_coverage() {
+    local prefix=$1   # CG / CHG / CHH
+    local max=$2
+    local folder=$3   # *.CX_report.txt.gz
+
     for i in $(seq 1 $max); do
         j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
-        value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
+
+        value=$(awk -v pos="$j" '$2 == pos {print $4 + $5; exit}' "$folder")
         if [ -z "$value" ]; then
             value=""
         fi
@@ -44,14 +61,14 @@ process_bedgraph() {
     done
 }
 
-# 定义函数处理 bedGraph1 文件
-process_bedgraph1() {
+# 定义函数处理 cx1 文件
+process_cx1_coverage() {
     local prefix=$1  # CG, CHG, CHH
     local max=$2     # 最大迭代数
     local folder=$3  # 文件夹路径
     for i in $(seq 1 $max); do
         j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
-        value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
+        value=$(awk -v pos="$j" '$2 == pos {print $4 + $5; exit}' "$folder")
         if [ -z "$value" ]; then
             value=""
         fi
@@ -59,14 +76,14 @@ process_bedgraph1() {
     done
 }
 
-# 定义函数处理 bedGraph2 文件
-process_bedgraph2() {
+# 定义函数处理 cx2 文件
+process_cx2_coverage() {
     local prefix=$1  # CG, CHG, CHH
     local max=$2     # 最大迭代数
     local folder=$3  # 文件夹路径
     for i in $(seq 1 $max); do
         j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
-        value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
+        value=$(awk -v pos="$j" '$2 == pos {print $4 + $5; exit}' "$folder")
         if [ -z "$value" ]; then
             value=""
         fi
@@ -99,12 +116,12 @@ do
         col2+=("$tem")
 
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph1 "CG" 262 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHG" 337 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHH" 1826 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CG" 262 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHG" 337 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHH" 1826 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_cx1_coverage "CG" 262 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.CX_report.RCA.promoter_terminator.txt"
+        process_cx1_coverage "CHG" 337 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.CX_report.RCA.promoter_terminator.txt"
+        process_cx1_coverage "CHH" 1826 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.CX_report.RCA.promoter_terminator.txt"
+        process_cx2_coverage "CG" 262 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.CX_report.RCA.promoter_terminator.txt"
+        process_cx2_coverage "CHG" 337 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.CX_report.RCA.promoter_terminator.txt"
+        process_cx2_coverage "CHH" 1826 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.CX_report.RCA.promoter_terminator.txt"
 
         # 处理 snp 数据
         p=$(awk -v var="$name" -F',' '($1 == var || $11 == var) { print $30 }' Unnormal.csv | uniq)
@@ -188,9 +205,9 @@ do
             done
         else
             # 处理 CG, CHG, CHH 数据
-            process_bedgraph "CG" 262 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHG" 337 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHH" 1826 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+            process_cx_coverage "CG" 262 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.CX_report.RCA.promoter_terminator.txt"
+            process_cx_coverage "CHG" 337 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.CX_report.RCA.promoter_terminator.txt"
+            process_cx_coverage "CHH" 1826 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.CX_report.RCA.promoter_terminator.txt"
         fi
 
         # 处理 snp 数据
@@ -258,7 +275,7 @@ do
         fi
         col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
-        echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.all.snp_meth.tsv
+        echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.weighted.snp_meth.tsv
         col=()
     fi
 done
@@ -283,9 +300,9 @@ do
         done
     else
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph "CG" 262 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHG" 337 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHH" 1826 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_cx_coverage "CG" 262 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.CX_report.RCA.promoter_terminator.txt"
+        process_cx_coverage "CHG" 337 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.CX_report.RCA.promoter_terminator.txt"
+        process_cx_coverage "CHH" 1826 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.CX_report.RCA.promoter_terminator.txt"
     fi
 
     # 处理 snp 数据
@@ -353,6 +370,6 @@ do
     fi
     col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
-    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.all.snp_meth.tsv
+    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.weighted.snp_meth.tsv
     col=()
 done

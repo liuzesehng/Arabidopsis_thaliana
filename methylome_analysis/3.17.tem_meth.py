@@ -26,7 +26,7 @@ TEMPERATURE_COLUMN = "Temperature"
 TEMPERATURE_ORDER = [22, 16, 10]
 TEMPERATURE_LABELS = {22: "22°C", 16: "16°C", 10: "10°C"}
 TEMPERATURE_COLORS = {22: "#d1495b", 16: "#edae49", 10: "#00798c"}
-FEATURE_TYPE_ORDER = ["CHH", "CHG", "CG", "snp"]
+FEATURE_TYPE_ORDER = ["CHH", "CHG", "CG"]
 PAIRWISE_TEMPERATURES = [(22, 16), (22, 10), (16, 10)]
 FEATURE_PATTERN = re.compile(r"^\s*((?:CHH|CHG|CG|snp)_[^:]+):\s*([-+0-9.eE]+)\s*$")
 DATASET_CONFIGS = [
@@ -39,6 +39,7 @@ DATASET_CONFIGS = [
 PERMUTATION_ITERATIONS = 4000
 GLOBAL_ALPHA = 0.05
 METHYLATION_COLORBAR_LABEL = "Methylation level"
+SCATTER_TOP_N = 10
 
 
 @dataclass
@@ -127,6 +128,8 @@ def parse_import_results(result_path: Path) -> DatasetResult:
             if shap_value <= 0:
                 continue
             feature_type = feature_name.split("_", 1)[0]
+            if feature_type not in features_by_type:
+                continue
             features_by_type[feature_type].append(feature_name)
             shap_values[feature_name] = shap_value
 
@@ -135,6 +138,18 @@ def parse_import_results(result_path: Path) -> DatasetResult:
         raise ValueError(f"No SHAP-positive features were found in {result_path}")
     dataset_name = result_path.name.replace("_import_results.txt", "")
     return DatasetResult(dataset_name=dataset_name, features_by_type=features_by_type, shap_values=shap_values)
+
+
+def select_top_features_for_scatter(dataset_result: DatasetResult, top_n: int = SCATTER_TOP_N) -> Dict[str, List[str]]:
+    selected: Dict[str, List[str]] = {}
+    for feature_type in FEATURE_TYPE_ORDER:
+        ranked = sorted(
+            dataset_result.features_by_type[feature_type],
+            key=lambda feature: dataset_result.shap_values[feature],
+            reverse=True,
+        )
+        selected[feature_type] = ranked[:top_n]
+    return selected
 
 
 def load_main_table(tsv_path: Path) -> pd.DataFrame:
@@ -431,19 +446,23 @@ def summarize_feature_statistics(df: pd.DataFrame, features_by_type: Dict[str, L
 GROUP_ORDER = ["High", "Medium", "Low"]
 GROUP_TO_TEMP = {"High": 22, "Medium": 16, "Low": 10}
 TEMP_TO_GROUP = {value: key for key, value in GROUP_TO_TEMP.items()}
+GROUP_DISPLAY_LABELS = {"High": "22℃", "Medium": "16℃", "Low": "10℃"}
 GROUP_COLORS = {"High": "#d1495b", "Medium": "#edae49", "Low": "#00798c"}
 BOX_OFFSETS = {"High": -0.24, "Medium": 0.0, "Low": 0.24}
+SCATTER_REFERENCE_RATIO = 6267 / 4913
 
 
 def add_group_labels(df: pd.DataFrame) -> pd.DataFrame:
     labeled = df.copy()
-    labeled["Group"] = labeled[TEMPERATURE_COLUMN].map(TEMP_TO_GROUP)
+    if "Group" not in labeled.columns:
+        labeled["Group"] = labeled[TEMPERATURE_COLUMN].map(TEMP_TO_GROUP)
     return labeled
 
 
 def weighted_average(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
     valid_mask = ~np.isnan(values)
-    weighted_sum = np.nansum(values * weights, axis=1)
+    safe_values = np.where(valid_mask, values, 0.0)
+    weighted_sum = np.sum(safe_values * weights, axis=1)
     weight_sum = np.sum(valid_mask * weights, axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         result = weighted_sum / weight_sum
@@ -451,22 +470,21 @@ def weighted_average(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
     return result
 
 
-def build_weighted_type_table(df: pd.DataFrame, dataset_result: DatasetResult) -> pd.DataFrame:
-    labeled_df = add_group_labels(df)
+def build_weighted_type_table(value_df: pd.DataFrame, dataset_result: DatasetResult) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     for feature_type in FEATURE_TYPE_ORDER:
         features = dataset_result.features_by_type[feature_type]
         if not features:
             continue
+        values = value_df[features].to_numpy(dtype=float)
         weights = np.array([dataset_result.shap_values[feature] for feature in features], dtype=float)
         weights = weights / weights.sum()
-        values = labeled_df[features].to_numpy(dtype=float)
         weighted_values = weighted_average(values, weights)
         feature_table = pd.DataFrame(
             {
-                "sample_index": labeled_df.index,
-                "temperature": labeled_df[TEMPERATURE_COLUMN],
-                "group": labeled_df["Group"],
+                "sample_index": value_df.index,
+                "temperature": value_df[TEMPERATURE_COLUMN],
+                "group": value_df[TEMPERATURE_COLUMN].map(TEMP_TO_GROUP),
                 "feature_type": feature_type,
                 "feature_value": weighted_values,
             }
@@ -509,57 +527,10 @@ def analyze_weighted_continuous(weighted_df: pd.DataFrame, feature_type: str) ->
                     "overall_test": "Kruskal-Wallis",
                     "overall_p": float(overall_p),
                     "overall_bh_p": math.nan,
-                    "pairwise_comparison": label.replace("22", "High").replace("16", "Medium").replace("10", "Low"),
+                    "pairwise_comparison": (
+                        label.replace("22", "22℃").replace("16", "16℃").replace("10", "10℃")
+                    ),
                     "pairwise_test": "Dunn",
-                    "raw_p": raw_p,
-                    "bh_p": adj_p,
-                    "significance": significance_stars(adj_p),
-                }
-            )
-    return overall_row, pairwise_rows
-
-
-def analyze_weighted_snp(weighted_df: pd.DataFrame) -> tuple[dict, list[dict]]:
-    subset = weighted_df.loc[weighted_df["feature_type"] == "snp"].copy()
-    subset["snp_binary"] = (subset["feature_value"] >= 0.5).astype(float)
-    groups = {
-        GROUP_TO_TEMP[group]: subset.loc[subset["group"] == group, "snp_binary"].dropna()
-        for group in GROUP_ORDER
-    }
-
-    contingency = pd.crosstab(subset["group"], subset["snp_binary"].astype(int)).reindex(index=GROUP_ORDER, columns=[0, 1], fill_value=0)
-    _chi2, chi2_p, _dof, expected = stats.chi2_contingency(contingency.to_numpy(), correction=False)
-    use_pairwise_only = bool(np.any(expected < 5))
-    if use_pairwise_only:
-        overall_method = "Skipped overall"
-        overall_p = math.nan
-    else:
-        overall_method = "Chi-square"
-        overall_p = float(chi2_p)
-
-    overall_row = {
-        "feature_type": "snp",
-        "overall_test": overall_method,
-        "overall_p": overall_p,
-        "overall_bh_p": math.nan,
-        "pairwise_comparison": "",
-        "pairwise_test": "",
-        "raw_p": math.nan,
-        "bh_p": math.nan,
-        "significance": significance_stars(overall_p) if pd.notna(overall_p) else "",
-    }
-
-    pairwise_rows: list[dict] = []
-    if use_pairwise_only or (pd.notna(overall_p) and float(overall_p) < GLOBAL_ALPHA):
-        for label, method, raw_p, adj_p in snp_pairwise_tests(groups):
-            pairwise_rows.append(
-                {
-                    "feature_type": "snp",
-                    "overall_test": overall_method,
-                    "overall_p": overall_p,
-                    "overall_bh_p": math.nan,
-                    "pairwise_comparison": label.replace("22", "High").replace("16", "Medium").replace("10", "Low"),
-                    "pairwise_test": method,
                     "raw_p": raw_p,
                     "bh_p": adj_p,
                     "significance": significance_stars(adj_p),
@@ -574,9 +545,6 @@ def summarize_weighted_type_statistics(weighted_df: pd.DataFrame) -> pd.DataFram
         overall_row, pairwise_rows = analyze_weighted_continuous(weighted_df, feature_type)
         rows.append(overall_row)
         rows.extend(pairwise_rows)
-    overall_row, pairwise_rows = analyze_weighted_snp(weighted_df)
-    rows.append(overall_row)
-    rows.extend(pairwise_rows)
 
     stats_df = pd.DataFrame(rows)
     cont_mask = (stats_df["feature_type"].isin(["CHH", "CHG", "CG"])) & (stats_df["pairwise_comparison"] == "")
@@ -594,8 +562,9 @@ def build_scatter_panel(
     df: pd.DataFrame,
     dataset_result: DatasetResult,
     feature_type: str,
+    scatter_features: Dict[str, List[str]],
 ) -> None:
-    features = dataset_result.features_by_type[feature_type]
+    features = scatter_features[feature_type]
     display_name = "SNP" if feature_type == "snp" else feature_type
     ax.set_title(f"{display_name} features ({len(features)})", loc="left", fontsize=20, fontweight="bold")
     if not features:
@@ -604,10 +573,10 @@ def build_scatter_panel(
         return
 
     labeled_df = add_group_labels(df)
-    norm_max = 1.0 if feature_type == "snp" else 100.0
+    norm_max = 100.0
     cmap = "viridis"
     band_height = norm_max
-    band_gap = 0.15 if feature_type == "snp" else 15.0
+    band_gap = 15.0
     band_base = {
         "Low": 0.0,
         "Medium": band_height + band_gap,
@@ -649,13 +618,10 @@ def build_scatter_panel(
             ax.plot(median_x, median_y, color=GROUP_COLORS[group], linewidth=2.4, alpha=0.95)
 
     ax.set_xlim(0.65, len(features) + 0.35)
-    ax.set_ylim(-0.02 if feature_type == "snp" else -2.0, band_base["High"] + band_height + (0.02 if feature_type == "snp" else 2.0))
+    ax.set_ylim(-2.0, band_base["High"] + band_height + 2.0)
     tick_values = []
     tick_labels = []
-    if feature_type == "snp":
-        inner_ticks = [0.0, 0.5, 1.0]
-    else:
-        inner_ticks = [0, 50, 100]
+    inner_ticks = [0, 50, 100]
     for group in ["Low", "Medium", "High"]:
         for tick in inner_ticks:
             tick_values.append(band_base[group] + tick)
@@ -664,25 +630,29 @@ def build_scatter_panel(
     ax.axhline(band_base["High"], color="#bbbbbb", linestyle="--", linewidth=0.8, alpha=0.6)
     ax.set_yticks(tick_values)
     ax.set_yticklabels(tick_labels, fontsize=17)
-    ax.set_ylabel("SNP" if feature_type == "snp" else "Methylation level", fontsize=22, labelpad=4)
+    ax.set_ylabel("Methylation level", fontsize=24, labelpad=4)
     ax.set_xticks(np.arange(1, len(features) + 1))
-    rotation = 90 if feature_type in {"CHH", "CG"} else 0
-    x_fontsize = 12 if feature_type in {"CHH", "CHG"} else 12
+    rotation = 0
+    x_fontsize = 14
     ax.set_xticklabels(features, rotation=rotation, ha="center", fontsize=x_fontsize)
     ax.set_xlabel("features", fontsize=17)
     ax.tick_params(axis="y", labelsize=17)
     ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.35)
-    ax.text(1.008, 0.84, "High", transform=ax.transAxes, color=GROUP_COLORS["High"], fontsize=18, va="center")
-    ax.text(1.008, 0.50, "Medium", transform=ax.transAxes, color=GROUP_COLORS["Medium"], fontsize=18, va="center")
-    ax.text(1.008, 0.16, "Low", transform=ax.transAxes, color=GROUP_COLORS["Low"], fontsize=18, va="center")
+    ax.text(1.008, 0.84, "22℃", transform=ax.transAxes, color=GROUP_COLORS["High"], fontsize=22, va="center")
+    ax.text(1.008, 0.50, "16℃", transform=ax.transAxes, color=GROUP_COLORS["Medium"], fontsize=22, va="center")
+    ax.text(1.008, 0.16, "10℃", transform=ax.transAxes, color=GROUP_COLORS["Low"], fontsize=22, va="center")
 
 
 def plot_feature_scatter_figure(df: pd.DataFrame, dataset_result: DatasetResult, output_dir: Path) -> tuple[Path, Path]:
-    fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(34, 24), constrained_layout=False)
-    fig.subplots_adjust(left=0.04, right=0.985, top=0.985, bottom=0.06, hspace=0.30)
+    scatter_features = select_top_features_for_scatter(dataset_result)
+    max_features = max(len(features) for features in scatter_features.values()) if scatter_features else 1
+    fig_width = max(18, min(24, 12 + max_features * 0.9))
+    fig_height = fig_width / SCATTER_REFERENCE_RATIO
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(fig_width, fig_height), constrained_layout=False)
+    fig.subplots_adjust(left=0.07, right=0.985, top=0.985, bottom=0.08, hspace=0.34)
 
-    for axis, feature_type in zip(axes, FEATURE_TYPE_ORDER):
-        build_scatter_panel(axis, df, dataset_result, feature_type)
+    for axis, feature_type in zip(np.atleast_1d(axes), FEATURE_TYPE_ORDER):
+        build_scatter_panel(axis, df, dataset_result, feature_type, scatter_features)
 
     pdf_path = output_dir / f"{dataset_result.dataset_name}_feature_scatter.pdf"
     png_path = output_dir / f"{dataset_result.dataset_name}_feature_scatter.png"
@@ -719,7 +689,7 @@ def build_weighted_boxplot_panel(
         bp = ax.boxplot(
             data,
             positions=positions + type_offsets[group],
-            widths=0.22,
+            widths=0.16,
             patch_artist=True,
             showfliers=False,
             medianprops={"color": "black", "linewidth": 1.0},
@@ -737,13 +707,13 @@ def build_weighted_boxplot_panel(
         overall_row = feature_stats.loc[feature_stats["pairwise_comparison"] == ""]
         pairwise_map = {row["pairwise_comparison"]: row["significance"] for row in pairwise_rows.to_dict("records")}
 
-        local_ymax = 1.0 if feature_type == "snp" else 100.0
-        annotation_step = 0.12 if feature_type == "snp" else 7.0
-        bracket_height = 0.04 if feature_type == "snp" else 2.4
-        text_offset = 0.015 if feature_type == "snp" else 1.4
+        local_ymax = 100.0
+        annotation_step = 7.0
+        bracket_height = 2.4
+        text_offset = 1.4
 
         for first, second in [("High", "Medium"), ("Medium", "Low"), ("High", "Low")]:
-            label = f"{first}_vs_{second}"
+            label = f"{GROUP_DISPLAY_LABELS[first]}_vs_{GROUP_DISPLAY_LABELS[second]}"
             stars = pairwise_map.get(label, "")
             if not stars:
                 continue
@@ -775,7 +745,7 @@ def build_weighted_boxplot_panel(
 
     ax.set_xticks(positions)
     ax.set_xticklabels(feature_types, fontsize=18)
-    ax.set_ylabel("feature value", fontsize=20)
+    ax.set_ylabel("Methylation level", fontsize=24)
     ax.set_ylim(0, y_max)
     ax.set_yticks(list(y_ticks))
     ax.tick_params(axis="y", labelsize=16)
@@ -789,7 +759,7 @@ def build_weighted_boxplot_panel(
                 marker="s",
                 linestyle="",
                 markersize=11,
-                label={"High": "22℃", "Medium": "16℃", "Low": "10℃"}[group],
+                label=GROUP_DISPLAY_LABELS[group],
             )
             for group in GROUP_ORDER
         ],
@@ -801,46 +771,50 @@ def build_weighted_boxplot_panel(
     )
 
 
+def plot_single_weighted_boxplot_figure(
+    dataset_result: DatasetResult,
+    weighted_df: pd.DataFrame,
+    stats_df: pd.DataFrame,
+    output_dir: Path,
+    feature_type: str,
+) -> tuple[Path, Path]:
+    fig_main, ax_main = plt.subplots(figsize=(10, 8), constrained_layout=False)
+    fig_main.subplots_adjust(left=0.11, right=0.96, top=0.95, bottom=0.16)
+    build_weighted_boxplot_panel(
+        ax_main,
+        weighted_df,
+        stats_df,
+        [feature_type],
+        y_max=128,
+        y_ticks=np.arange(0, 101, 20),
+    )
+    pdf_path = output_dir / f"{dataset_result.dataset_name}_{feature_type}_weighted_boxplot.pdf"
+    png_path = output_dir / f"{dataset_result.dataset_name}_{feature_type}_weighted_boxplot.png"
+    fig_main.savefig(pdf_path)
+    fig_main.savefig(png_path, dpi=300)
+    plt.close(fig_main)
+    return pdf_path, png_path
+
+
 def plot_weighted_boxplot_figure(
     dataset_result: DatasetResult,
     weighted_df: pd.DataFrame,
     stats_df: pd.DataFrame,
     output_dir: Path,
-) -> tuple[Path, Path, Path, Path, Path]:
-    fig_main, ax_main = plt.subplots(figsize=(16, 9), constrained_layout=False)
-    fig_main.subplots_adjust(left=0.09, right=0.96, top=0.95, bottom=0.14)
-    build_weighted_boxplot_panel(
-        ax_main,
-        weighted_df,
-        stats_df,
-        ["CHH", "CHG", "CG"],
-        y_max=128,
-        y_ticks=np.arange(0, 101, 20),
-    )
-    pdf_path = output_dir / f"{dataset_result.dataset_name}_weighted_boxplot.pdf"
-    png_path = output_dir / f"{dataset_result.dataset_name}_weighted_boxplot.png"
-
-    fig_snp, ax_snp = plt.subplots(figsize=(7, 8), constrained_layout=False)
-    fig_snp.subplots_adjust(left=0.14, right=0.95, top=0.95, bottom=0.14)
-    build_weighted_boxplot_panel(
-        ax_snp,
-        weighted_df,
-        stats_df,
-        ["snp"],
-        y_max=1.45,
-        y_ticks=np.linspace(0, 1, 5),
-    )
-    snp_pdf_path = output_dir / f"{dataset_result.dataset_name}_weighted_boxplot_snp.pdf"
-    snp_png_path = output_dir / f"{dataset_result.dataset_name}_weighted_boxplot_snp.png"
+) -> tuple[list[tuple[str, Path, Path]], Path]:
+    plot_paths: list[tuple[str, Path, Path]] = []
+    for feature_type in ["CHH", "CHG", "CG"]:
+        pdf_path, png_path = plot_single_weighted_boxplot_figure(
+            dataset_result,
+            weighted_df,
+            stats_df,
+            output_dir,
+            feature_type,
+        )
+        plot_paths.append((feature_type, pdf_path, png_path))
     stats_path = output_dir / f"{dataset_result.dataset_name}_weighted_boxplot_stats.tsv"
-    fig_main.savefig(pdf_path)
-    fig_main.savefig(png_path, dpi=300)
-    fig_snp.savefig(snp_pdf_path)
-    fig_snp.savefig(snp_png_path, dpi=300)
-    plt.close(fig_main)
-    plt.close(fig_snp)
     stats_df.to_csv(stats_path, sep="\t", index=False)
-    return pdf_path, png_path, snp_pdf_path, snp_png_path, stats_path
+    return plot_paths, stats_path
 
 
 def validate_feature_columns(df: pd.DataFrame, dataset_results: Sequence[DatasetResult]) -> None:
@@ -863,28 +837,31 @@ def run_all() -> None:
 
     dataset_results = [parse_import_results(import_dir / filename) for filename, _dataset_name in DATASET_CONFIGS]
     validate_feature_columns(main_df, dataset_results)
+    main_df = main_df.copy()
+    metric = pd.to_numeric(main_df[TEMPERATURE_COLUMN], errors="coerce")
+    low_cut = metric.quantile(0.10)
+    high_cut = metric.quantile(0.90)
+    main_df["Group"] = np.where(metric <= low_cut, "Low", np.where(metric >= high_cut, "High", "Medium"))
 
     generated_outputs = []
     for dataset_result in dataset_results:
         scatter_pdf, scatter_png = plot_feature_scatter_figure(main_df, dataset_result, output_dir)
         weighted_df = build_weighted_type_table(main_df, dataset_result)
         weighted_stats_df = summarize_weighted_type_statistics(weighted_df)
-        box_pdf, box_png, snp_box_pdf, snp_box_png, stats_path = plot_weighted_boxplot_figure(
+        box_plots, stats_path = plot_weighted_boxplot_figure(
             dataset_result,
             weighted_df,
             weighted_stats_df,
             output_dir,
         )
-        generated_outputs.append((scatter_pdf, scatter_png, box_pdf, box_png, snp_box_pdf, snp_box_png, stats_path))
+        generated_outputs.append((scatter_pdf, scatter_png, box_plots, stats_path))
 
     print(f"Input table: {tsv_path}")
     print(f"Import-results directory: {import_dir}")
     print(f"Output directory: {output_dir}")
-    for scatter_pdf, scatter_png, box_pdf, box_png, snp_box_pdf, snp_box_png, stats_path in generated_outputs:
-        print(
-            f"Generated: {scatter_pdf.name}, {scatter_png.name}, "
-            f"{box_pdf.name}, {box_png.name}, {snp_box_pdf.name}, {snp_box_png.name}, {stats_path.name}"
-        )
+    for scatter_pdf, scatter_png, box_plots, stats_path in generated_outputs:
+        box_names = ", ".join(f"{pdf_path.name}, {png_path.name}" for _ft, pdf_path, png_path in box_plots)
+        print(f"Generated: {scatter_pdf.name}, {scatter_png.name}, {box_names}, {stats_path.name}")
 
 
 if __name__ == "__main__":

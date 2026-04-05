@@ -240,7 +240,7 @@ def plot_module(long_df: pd.DataFrame, stats_df: pd.DataFrame, output_path: Path
     )
 
     ax.set_xlabel("Temperature", fontsize=12)
-    ax.set_ylabel("log1p(mean expression)", fontsize=12)
+    ax.set_ylabel("ln(TPM+1)", fontsize=12)
     ax.set_xticklabels([TEMPERATURE_LABELS[temp] for temp in TEMPERATURE_ORDER])
 
     add_significance_annotations(ax, long_df, stats_df)

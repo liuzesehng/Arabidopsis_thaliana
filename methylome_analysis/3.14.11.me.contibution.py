@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate SHAP-positive feature scatter plots and weighted group boxplots."""
+"""Generate SHAP-positive feature scatter plots and SHAP-weighted boxplots."""
 
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from scipy import stats
 
 
 FEATURE_GROUPS = ("CHH", "CHG", "CG", "snp")
+SCATTER_FEATURE_GROUPS = ("CHH", "CHG", "CG")
+BOXPLOT_FEATURE_GROUPS = ("CHH", "CHG", "CG")
 DISPLAY_GROUPS = {"CHH": "CHH", "CHG": "CHG", "CG": "CG", "snp": "SNP"}
+SCATTER_TOP_N = 10
 EXPRESSION_ORDER = ("High", "Medium", "Low")
 EXPRESSION_LABELS = {"High": "High", "Medium": "Medium", "Low": "Low"}
 PAIRWISE_COMPARISONS = (("High", "Medium"), ("High", "Low"), ("Medium", "Low"))
@@ -106,8 +109,8 @@ def add_expression_groups(data_frame: pd.DataFrame, expr_col: str) -> Tuple[pd.D
     eligible = expr_series.dropna()
     if eligible.empty:
         raise ValueError(f"No valid samples found for {expr_col}")
-    q1 = eligible.quantile(0.25)
-    q3 = eligible.quantile(0.75)
+    q1 = eligible.quantile(0.20)
+    q3 = eligible.quantile(0.80)
     grouped = data_frame.loc[eligible.index].copy()
 
     def classify(value: float) -> str:
@@ -119,6 +122,14 @@ def add_expression_groups(data_frame: pd.DataFrame, expr_col: str) -> Tuple[pd.D
 
     grouped["expression_group"] = eligible.map(classify)
     return grouped, float(q1), float(q3)
+
+
+def filter_scatter_features(grouped_features: Dict[str, List[Tuple[str, float]]]) -> Dict[str, List[Tuple[str, float]]]:
+    return {group_name: grouped_features[group_name][:SCATTER_TOP_N] for group_name in SCATTER_FEATURE_GROUPS}
+
+
+def filter_boxplot_features(grouped_features: Dict[str, List[Tuple[str, float]]]) -> Dict[str, List[Tuple[str, float]]]:
+    return {group_name: list(grouped_features[group_name]) for group_name in BOXPLOT_FEATURE_GROUPS}
 
 
 def bh_adjust(p_values: List[float]) -> List[float]:
@@ -193,62 +204,33 @@ def dunn_pairwise(feature_values: Dict[str, pd.Series]) -> List[Dict[str, object
     return records
 
 
-def fisher_pairwise_binary(feature_values: Dict[str, pd.Series]) -> List[Dict[str, object]]:
-    records: List[Dict[str, object]] = []
-    raw_pvals: List[float] = []
-    for first, second in PAIRWISE_COMPARISONS:
-        first_values = feature_values[first].dropna().astype(int)
-        second_values = feature_values[second].dropna().astype(int)
-        counts_first = first_values.value_counts()
-        counts_second = second_values.value_counts()
-        table = np.array(
-            [
-                [counts_first.get(0, 0), counts_first.get(1, 0)],
-                [counts_second.get(0, 0), counts_second.get(1, 0)],
-            ],
-            dtype=int,
-        )
-        if np.any(table.sum(axis=1) == 0) or np.any(table.sum(axis=0) == 0):
-            p_value = np.nan
-        else:
-            _, p_value = stats.fisher_exact(table)
-        raw_pvals.append(p_value)
-        records.append(
-            {
-                "comparison": f"{first}_vs_{second}",
-                "group1": first,
-                "group2": second,
-                "test_method": "Fisher_exact_2x2",
-                "raw_p_value": p_value,
-            }
-        )
-    valid = [1.0 if pd.isna(value) else float(value) for value in raw_pvals]
-    for record, adjusted in zip(records, bh_adjust(valid)):
-        record["adj_p_value"] = np.nan if pd.isna(record["raw_p_value"]) else adjusted
-        record["star"] = significance_stars(record["adj_p_value"])
-    return records
-
-
-def compute_weighted_scores(grouped_data: pd.DataFrame, grouped_features: Dict[str, List[Tuple[str, float]]]) -> pd.DataFrame:
+def compute_shap_weighted_scores(
+    grouped_data: pd.DataFrame,
+    grouped_features: Dict[str, List[Tuple[str, float]]],
+) -> pd.DataFrame:
     weighted_df = grouped_data[["expression_group"]].copy()
-    for group_name in FEATURE_GROUPS:
-        feature_items = grouped_features[group_name]
+    for group_name in BOXPLOT_FEATURE_GROUPS:
+        feature_items = [(feature, shap) for feature, shap in grouped_features[group_name] if feature in grouped_data.columns]
         if not feature_items:
-            weighted_df[DISPLAY_GROUPS[group_name]] = np.nan
+            weighted_df[group_name] = np.nan
             continue
-        features = [feature for feature, _ in feature_items]
+
+        feature_names = [feature for feature, _ in feature_items]
         weights = np.asarray([shap for _, shap in feature_items], dtype=float)
-        weight_sum = weights.sum()
-        if weight_sum == 0:
-            weighted_df[DISPLAY_GROUPS[group_name]] = np.nan
-            continue
-        normalized = weights / weight_sum
-        values = grouped_data[features].fillna(0.0).to_numpy(dtype=float)
-        weighted_df[DISPLAY_GROUPS[group_name]] = values @ normalized
+        values = grouped_data[feature_names].to_numpy(dtype=float)
+        valid_mask = ~np.isnan(values)
+        normalized_weights = np.broadcast_to(weights, values.shape)
+        weighted_values = np.full(values.shape[0], np.nan, dtype=float)
+        weight_sums = np.where(valid_mask, normalized_weights, 0.0).sum(axis=1)
+        valid_rows = weight_sums > 0
+        if np.any(valid_rows):
+            numerators = np.where(valid_mask[valid_rows], values[valid_rows] * normalized_weights[valid_rows], 0.0).sum(axis=1)
+            weighted_values[valid_rows] = numerators / weight_sums[valid_rows]
+        weighted_df[group_name] = weighted_values
     return weighted_df
 
 
-def summarize_weighted_group(feature_name: str, feature_values: Dict[str, pd.Series]) -> Dict[str, object]:
+def summarize_boxplot_group(feature_name: str, feature_values: Dict[str, pd.Series]) -> Dict[str, object]:
     row: Dict[str, object] = {"feature_group": feature_name, "feature_name": feature_name, "overall_test": "Kruskal_Wallis"}
     for group in EXPRESSION_ORDER:
         values = feature_values[group].dropna()
@@ -258,34 +240,18 @@ def summarize_weighted_group(feature_name: str, feature_values: Dict[str, pd.Ser
     return row
 
 
-def collect_group_feature_matrix(grouped_data: pd.DataFrame, feature_items: List[Tuple[str, float]]) -> Dict[str, pd.Series]:
-    if not feature_items:
-        return {group: pd.Series(dtype=float) for group in EXPRESSION_ORDER}
-    feature_names = [feature for feature, _ in feature_items]
-    pooled: Dict[str, pd.Series] = {}
-    for expr_group in EXPRESSION_ORDER:
-        subset = grouped_data[grouped_data["expression_group"] == expr_group]
-        values = subset[feature_names].to_numpy(dtype=float).ravel()
-        pooled[expr_group] = pd.Series(values).dropna()
-    return pooled
-
-
-def run_group_level_statistics(
-    grouped_data: pd.DataFrame,
-    grouped_features: Dict[str, List[Tuple[str, float]]],
-    weighted_df: pd.DataFrame,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def run_group_level_statistics(weighted_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     feature_rows: List[Dict[str, object]] = []
     pairwise_rows: List[Dict[str, object]] = []
     overall_pvals: List[float] = []
     tested_groups: List[str] = []
 
-    for group_name in ["CHH", "CHG", "CG"]:
+    for group_name in BOXPLOT_FEATURE_GROUPS:
         feature_values = {
             expr_group: weighted_df.loc[weighted_df["expression_group"] == expr_group, group_name].dropna()
             for expr_group in EXPRESSION_ORDER
         }
-        row = summarize_weighted_group(group_name, feature_values)
+        row = summarize_boxplot_group(group_name, feature_values)
         arrays = [feature_values[group].to_numpy(dtype=float) for group in EXPRESSION_ORDER]
         if any(len(arr) == 0 for arr in arrays):
             row["overall_p_value"] = np.nan
@@ -307,35 +273,6 @@ def run_group_level_statistics(
             pair_row["feature_name"] = group_name
             pairwise_rows.append(pair_row)
 
-    snp_feature_values = collect_group_feature_matrix(grouped_data, grouped_features["snp"])
-    snp_row = summarize_weighted_group("SNP", snp_feature_values)
-    snp_row["overall_test"] = "Chi_square"
-    contingency = []
-    for group in EXPRESSION_ORDER:
-        values = snp_feature_values[group].dropna().astype(int)
-        contingency.append([int((values == 0).sum()), int((values == 1).sum())])
-    table = np.array(contingency, dtype=int)
-    if np.any(table.sum(axis=1) == 0) or np.any(table.sum(axis=0) == 0):
-        snp_row["overall_p_value"] = np.nan
-        snp_row["overall_adj_p_value"] = np.nan
-        snp_row["overall_significant"] = False
-        snp_row["unstable_overall_test"] = True
-    else:
-        chi2, p_value, _dof, expected = stats.chi2_contingency(table)
-        snp_row["chi2_statistic"] = float(chi2)
-        snp_row["overall_p_value"] = float(p_value)
-        snp_row["overall_adj_p_value"] = np.nan
-        snp_row["overall_significant"] = False
-        snp_row["unstable_overall_test"] = bool((expected < 5).any())
-        overall_pvals.append(float(p_value))
-        tested_groups.append("SNP")
-    feature_rows.append(snp_row)
-
-    for pair_row in fisher_pairwise_binary(snp_feature_values):
-        pair_row["feature_group"] = "SNP"
-        pair_row["feature_name"] = "SNP"
-        pairwise_rows.append(pair_row)
-
     feature_df = pd.DataFrame(feature_rows)
     adjusted = bh_adjust(overall_pvals)
     for group_name, adj_p in zip(tested_groups, adjusted):
@@ -346,11 +283,7 @@ def run_group_level_statistics(
     pairwise_df = pd.DataFrame(pairwise_rows)
     if not pairwise_df.empty:
         significant_groups = set(feature_df.loc[feature_df["overall_significant"], "feature_name"])
-        snp_unstable = feature_df.loc[feature_df["feature_name"] == "SNP", "unstable_overall_test"].eq(True).any()
-        pairwise_df = pairwise_df[
-            pairwise_df["feature_name"].isin(significant_groups)
-            | ((pairwise_df["feature_name"] == "SNP") & snp_unstable)
-        ].copy()
+        pairwise_df = pairwise_df[pairwise_df["feature_name"].isin(significant_groups)].copy()
 
     return feature_df, pairwise_df
 
@@ -361,21 +294,20 @@ def add_significance_bracket(axis: plt.Axes, x1: float, x2: float, y: float, hei
 
 
 def plot_scatter_figure(grouped_features: Dict[str, List[Tuple[str, float]]], grouped_data: pd.DataFrame, output_dir: Path) -> None:
-    fig, axes = plt.subplots(len(FEATURE_GROUPS), 1, figsize=(34, 24), constrained_layout=False)
-    for axis, group_name in zip(axes, FEATURE_GROUPS):
-        feature_items = grouped_features[group_name]
+    scatter_features = filter_scatter_features(grouped_features)
+    max_features = max((len(items) for items in scatter_features.values()), default=1)
+    fig_width = max(14.0, min(24.0, 6.0 + max_features * 1.35))
+    fig_height = max(15.0, len(SCATTER_FEATURE_GROUPS) * 5.6)
+    fig, axes = plt.subplots(len(SCATTER_FEATURE_GROUPS), 1, figsize=(fig_width, fig_height), constrained_layout=False)
+    for axis, group_name in zip(axes, SCATTER_FEATURE_GROUPS):
+        feature_items = scatter_features[group_name]
         if not feature_items:
             axis.axis("off")
             continue
 
-        is_snp_panel = DISPLAY_GROUPS[group_name] == "SNP"
-        band_height = 1.0 if is_snp_panel else 100.0
-        band_gap = 0.15 if is_snp_panel else 15.0
-        band_bases = {
-            "Low": 0.0,
-            "Medium": band_height + band_gap,
-            "High": 2 * (band_height + band_gap),
-        }
+        band_height = 100.0
+        band_gap = 15.0
+        band_bases = {"Low": 0.0, "Medium": band_height + band_gap, "High": 2 * (band_height + band_gap)}
         median_lines: Dict[str, List[float]] = {expr_group: [] for expr_group in EXPRESSION_ORDER}
         for expr_group in EXPRESSION_ORDER:
             subset = grouped_data[grouped_data["expression_group"] == expr_group]
@@ -383,13 +315,12 @@ def plot_scatter_figure(grouped_features: Dict[str, List[Tuple[str, float]]], gr
             y_values: List[float] = []
             for idx, (feature_name, _shap) in enumerate(feature_items, start=1):
                 values = pd.to_numeric(subset[feature_name], errors="coerce").dropna().to_numpy(dtype=float)
-                scaled = values
                 group_base = band_bases[expr_group]
                 jitter = np.linspace(-0.12, 0.12, num=len(values)) if len(values) > 1 else np.zeros(len(values))
                 x_values.extend((idx + jitter).tolist())
-                y_values.extend((group_base + scaled).tolist())
-                median_lines[expr_group].append(float(np.nanmedian(scaled)) if len(scaled) else np.nan)
-            axis.scatter(x_values, y_values, s=18, alpha=0.45, color=GROUP_COLORS[expr_group], label=expr_group if group_name == FEATURE_GROUPS[0] else None)
+                y_values.extend((group_base + values).tolist())
+                median_lines[expr_group].append(float(np.nanmedian(values)) if len(values) else np.nan)
+            axis.scatter(x_values, y_values, s=18, alpha=0.45, color=GROUP_COLORS[expr_group])
             valid_points = [
                 (idx, group_base + value)
                 for idx, value in enumerate(median_lines[expr_group], start=1)
@@ -402,163 +333,91 @@ def plot_scatter_figure(grouped_features: Dict[str, List[Tuple[str, float]]], gr
         tick_positions = list(range(1, len(feature_items) + 1))
         tick_labels = [feature for feature, _ in feature_items]
         axis.set_xticks(tick_positions)
-        rotation = 90 if DISPLAY_GROUPS[group_name] in {"CHH", "CG"} else 0
-        axis.set_xticklabels(tick_labels, rotation=rotation, ha="center", fontsize=12)
-        axis.set_title(f"{DISPLAY_GROUPS[group_name]} features ({len(feature_items)})", fontsize=20, fontweight="bold", loc="left")
-        axis.set_ylabel("SNP" if DISPLAY_GROUPS[group_name] == "SNP" else "Methylation level", fontsize=22, labelpad=4)
-        axis.tick_params(axis="y", labelsize=17)
-        tick_mid = 0.5 if is_snp_panel else 50.0
-        tick_top = 1.0 if is_snp_panel else 100.0
-        y_ticks = [
-            0.0,
-            tick_mid,
-            tick_top,
-            band_bases["Medium"],
-            band_bases["Medium"] + tick_mid,
-            band_bases["Medium"] + tick_top,
-            band_bases["High"],
-            band_bases["High"] + tick_mid,
-            band_bases["High"] + tick_top,
-        ]
+        axis.set_xticklabels(tick_labels, rotation=0, ha="center", fontsize=15)
+        axis.set_title(f"{DISPLAY_GROUPS[group_name]} features ({len(feature_items)})", fontsize=24, fontweight="bold", loc="left")
+        axis.set_ylabel("Methylation level", fontsize=24, labelpad=4)
+        axis.tick_params(axis="y", labelsize=20)
+        y_ticks = [0.0, 50.0, 100.0, band_bases["Medium"], band_bases["Medium"] + 50.0, band_bases["Medium"] + 100.0, band_bases["High"], band_bases["High"] + 50.0, band_bases["High"] + 100.0]
         axis.set_yticks(y_ticks)
-        axis.set_yticklabels(
-            ["0", "0.5", "1" if is_snp_panel else "100", "0", "0.5", "1" if is_snp_panel else "100", "0", "0.5", "1" if is_snp_panel else "100"]
-            if is_snp_panel
-            else ["0", "50", "100", "0", "50", "100", "0", "50", "100"],
-            fontsize=17,
-        )
+        axis.set_yticklabels(["0", "50", "100", "0", "50", "100", "0", "50", "100"], fontsize=20)
         axis.axhline(band_bases["Medium"], color="#bbbbbb", linestyle="--", linewidth=0.8, alpha=0.6)
         axis.axhline(band_bases["High"], color="#bbbbbb", linestyle="--", linewidth=0.8, alpha=0.6)
         axis.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.35)
-        axis.set_ylim(-0.02 if is_snp_panel else -2.0, band_bases["High"] + band_height + (0.02 if is_snp_panel else 2.0))
+        axis.set_ylim(-2.0, band_bases["High"] + band_height + 2.0)
         axis.set_xlim(0.65, len(feature_items) + 0.35)
-        axis.text(1.008, 0.84, "High", transform=axis.transAxes, color=GROUP_COLORS["High"], fontsize=18, va="center")
-        axis.text(1.008, 0.50, "Medium", transform=axis.transAxes, color=GROUP_COLORS["Medium"], fontsize=18, va="center")
-        axis.text(1.008, 0.16, "Low", transform=axis.transAxes, color=GROUP_COLORS["Low"], fontsize=18, va="center")
+        axis.text(1.008, 0.84, "High", transform=axis.transAxes, color=GROUP_COLORS["High"], fontsize=20, va="center")
+        axis.text(1.008, 0.50, "Medium", transform=axis.transAxes, color=GROUP_COLORS["Medium"], fontsize=20, va="center")
+        axis.text(1.008, 0.16, "Low", transform=axis.transAxes, color=GROUP_COLORS["Low"], fontsize=20, va="center")
     fig.subplots_adjust(left=0.04, right=0.985, top=0.985, bottom=0.06, hspace=0.30)
-    png_path = output_dir / "me_contribution_scatter.png"
-    pdf_path = output_dir / "me_contribution_scatter.pdf"
-    fig.savefig(png_path, dpi=300, bbox_inches="tight")
-    fig.savefig(pdf_path, bbox_inches="tight")
+    fig.savefig(output_dir / "me_contribution_scatter.png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_dir / "me_contribution_scatter.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
-def plot_single_weighted_boxplot(
-    weighted_df: pd.DataFrame,
-    pairwise_df: pd.DataFrame,
-    output_dir: Path,
-    x_labels: List[str],
-    y_label: str,
-    y_top: float,
-    x_left: float,
-    x_right: float,
-    fig_size: Tuple[float, float],
-    box_width: float,
-    group_offsets: Dict[str, float],
-    output_stem: str,
-) -> None:
-    fig, ax = plt.subplots(figsize=fig_size, constrained_layout=False)
-    feature_maxima: Dict[str, float] = {}
+def plot_single_boxplot(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, output_dir: Path, feature_name: str) -> None:
+    fig, axis = plt.subplots(figsize=(9, 6), constrained_layout=False)
+    box_width = 0.12
+    feature_max = 0.0
 
-    for feature_rank, feature_name in enumerate(x_labels, start=1):
-        feature_specific_values: List[float] = []
-        for expr_group in EXPRESSION_ORDER:
-            values = weighted_df.loc[weighted_df["expression_group"] == expr_group, feature_name].dropna()
-            if values.empty:
-                continue
-            vals = values.to_list()
-            feature_specific_values.extend(vals)
-            ax.boxplot(
-                values.to_numpy(dtype=float),
-                positions=[feature_rank + group_offsets[expr_group]],
-                widths=box_width,
-                patch_artist=True,
-                manage_ticks=False,
-                boxprops={"facecolor": GROUP_COLORS[expr_group], "edgecolor": GROUP_COLORS[expr_group], "alpha": 0.35, "linewidth": 1.2},
-                medianprops={"color": "#111111", "linewidth": 1.3},
-                whiskerprops={"color": GROUP_COLORS[expr_group], "linewidth": 1.0},
-                capprops={"color": GROUP_COLORS[expr_group], "linewidth": 1.0},
-                flierprops={"marker": "o", "markersize": 2.0, "markerfacecolor": GROUP_COLORS[expr_group], "markeredgecolor": GROUP_COLORS[expr_group], "alpha": 0.35},
-            )
-        feature_maxima[feature_name] = max(feature_specific_values) if feature_specific_values else 0.0
+    for expr_group in EXPRESSION_ORDER:
+        values = weighted_df.loc[weighted_df["expression_group"] == expr_group, feature_name].dropna()
+        if values.empty:
+            continue
+        feature_max = max(feature_max, float(values.max()))
+        axis.boxplot(
+            values.to_numpy(dtype=float),
+            positions=[1 + BOX_OFFSETS[expr_group]],
+            widths=box_width,
+            patch_artist=True,
+            manage_ticks=False,
+            boxprops={"facecolor": GROUP_COLORS[expr_group], "edgecolor": GROUP_COLORS[expr_group], "alpha": 0.35, "linewidth": 1.2},
+            medianprops={"color": "#111111", "linewidth": 1.3},
+            whiskerprops={"color": GROUP_COLORS[expr_group], "linewidth": 1.0},
+            capprops={"color": GROUP_COLORS[expr_group], "linewidth": 1.0},
+            flierprops={"marker": "o", "markersize": 2.0, "markerfacecolor": GROUP_COLORS[expr_group], "markeredgecolor": GROUP_COLORS[expr_group], "alpha": 0.35},
+        )
 
-    y_padding = 0.18 if y_top <= 1.5 else 18.0
-    bracket_base = y_padding * 0.10
-    bracket_height = y_padding * 0.06
-    ax.set_xlim(x_left, x_right)
-    ax.set_ylim(0, y_top + y_padding)
+    y_top = max(feature_max * 1.20, 5.0)
+    bracket_base = max(y_top * 0.06, 2.0)
+    bracket_height = max(y_top * 0.03, 1.0)
+    subset = pairwise_df[pairwise_df["feature_name"] == feature_name].copy()
+    significant_rows = subset[subset["star"] != ""].copy()
+    significant_rows["level"] = significant_rows["comparison"].map(PAIRWISE_LEVELS).fillna(1).astype(int)
+    significant_rows = significant_rows.sort_values("level")
+    for row in significant_rows.itertuples(index=False):
+        x1 = 1 + BOX_OFFSETS[row.group1]
+        x2 = 1 + BOX_OFFSETS[row.group2]
+        y = min(feature_max, y_top) + bracket_base * row.level
+        add_significance_bracket(axis, x1, x2, y, bracket_height, row.star)
 
-    for feature_rank, feature_name in enumerate(x_labels, start=1):
-        subset = pairwise_df[pairwise_df["feature_name"] == feature_name].copy()
-        significant_rows = subset[subset["star"] != ""].copy()
-        significant_rows["level"] = significant_rows["comparison"].map(PAIRWISE_LEVELS).fillna(1).astype(int)
-        significant_rows = significant_rows.sort_values("level")
-        for row in significant_rows.itertuples(index=False):
-            x1 = feature_rank + group_offsets[row.group1]
-            x2 = feature_rank + group_offsets[row.group2]
-            y = min(feature_maxima.get(feature_name, y_top), y_top) + bracket_base * row.level
-            add_significance_bracket(ax, x1, x2, y, bracket_height, row.star)
+    axis.set_xlim(0.55, 1.45)
+    axis.set_ylim(0, y_top + bracket_base * max(1, len(significant_rows) + 1))
+    axis.set_xticks([1])
+    axis.set_xticklabels([feature_name], fontsize=18)
+    axis.set_ylabel("Methylation level", fontsize=22)
+    axis.tick_params(axis="y", labelsize=16)
+    axis.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.35)
+    axis.set_title(feature_name, fontsize=22, fontweight="bold", loc="left")
 
-    ax.set_xticks(range(1, len(x_labels) + 1))
-    ax.set_xticklabels(x_labels, fontsize=18)
-    ax.set_ylabel(y_label, fontsize=22)
-    ax.tick_params(axis="y", labelsize=16)
-    if y_top <= 1.5:
-        ax.set_yticks([0.0, 0.5, 1.0])
-        ax.set_yticklabels(["0", "0.5", "1"], fontsize=16)
-    ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.35)
     legend_handles = [
         Patch(facecolor=GROUP_COLORS[group], edgecolor=GROUP_COLORS[group], alpha=0.35, label=EXPRESSION_LABELS[group])
         for group in EXPRESSION_ORDER
     ]
-    ax.legend(
-        handles=legend_handles,
-        loc="center left",
-        bbox_to_anchor=(1.01, 0.5),
-        ncol=1,
-        frameon=False,
-        fontsize=18,
-        handlelength=1.6,
-        columnspacing=1.8,
-    )
-    fig.subplots_adjust(left=0.09, right=0.90, top=0.94, bottom=0.12)
-
-    png_path = output_dir / f"{output_stem}.png"
-    pdf_path = output_dir / f"{output_stem}.pdf"
-    fig.savefig(png_path, dpi=300, bbox_inches="tight")
-    fig.savefig(pdf_path, bbox_inches="tight")
+    axis.legend(handles=legend_handles, loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False, fontsize=16)
+    fig.subplots_adjust(left=0.12, right=0.82, top=0.92, bottom=0.15)
+    fig.savefig(output_dir / f"me_contribution_weighted_boxplot_{feature_name}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_dir / f"me_contribution_weighted_boxplot_{feature_name}.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
-def plot_weighted_boxplot_figure(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, output_dir: Path) -> None:
-    plot_single_weighted_boxplot(
-        weighted_df=weighted_df,
-        pairwise_df=pairwise_df,
-        output_dir=output_dir,
-        x_labels=["CHH", "CHG", "CG"],
-        y_label="Methylation level",
-        y_top=100.0,
-        x_left=0.55,
-        x_right=3.45,
-        fig_size=(16, 10),
-        box_width=0.18,
-        group_offsets={"High": -0.22, "Medium": 0.0, "Low": 0.22},
-        output_stem="me_contribution_weighted_boxplot",
-    )
-    plot_single_weighted_boxplot(
-        weighted_df=weighted_df,
-        pairwise_df=pairwise_df,
-        output_dir=output_dir,
-        x_labels=["SNP"],
-        y_label="SNP",
-        y_top=1.0,
-        x_left=0.55,
-        x_right=1.45,
-        fig_size=(9, 10),
-        box_width=0.18,
-        group_offsets={"High": -0.24, "Medium": 0.0, "Low": 0.24},
-        output_stem="me_contribution_weighted_boxplot_snp",
-    )
+def plot_boxplot_figures(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, output_dir: Path) -> None:
+    for feature_name in BOXPLOT_FEATURE_GROUPS:
+        plot_single_boxplot(weighted_df, pairwise_df, output_dir, feature_name)
+    for suffix in ("png", "pdf"):
+        for legacy_name in ("me_contribution_weighted_boxplot", "me_contribution_weighted_boxplot_snp"):
+            legacy_path = output_dir / f"{legacy_name}.{suffix}"
+            if legacy_path.exists():
+                legacy_path.unlink()
 
 
 def write_weighted_stats_outputs(output_dir: Path, prefix: str, feature_stats: pd.DataFrame, pairwise_stats: pd.DataFrame) -> None:
@@ -569,7 +428,7 @@ def write_weighted_stats_outputs(output_dir: Path, prefix: str, feature_stats: p
         f"=== {prefix} weighted group statistics summary ===",
         "",
         f"tested_groups\t{len(feature_stats)}",
-        f"overall_significant_groups\t{int(feature_stats['overall_significant'].fillna(False).sum())}",
+        f"overall_significant_groups\t{int(feature_stats['overall_significant'].eq(True).sum())}",
         f"pairwise_significant_comparisons\t{int((pairwise_stats['star'] != '').sum()) if not pairwise_stats.empty else 0}",
         "",
         "feature_group\toverall_adj_p_value\toverall_significant",
@@ -580,18 +439,24 @@ def write_weighted_stats_outputs(output_dir: Path, prefix: str, feature_stats: p
     (output_dir / f"{prefix}_weighted_group_stats_summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def process_target(grouped_features: Dict[str, List[Tuple[str, float]]], methylation_df: pd.DataFrame, config: Dict[str, str], output_dir: Path) -> None:
+def process_target(
+    grouped_features: Dict[str, List[Tuple[str, float]]],
+    methylation_df: pd.DataFrame,
+    config: Dict[str, str],
+    output_dir: Path,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     grouped_df, _q1, _q3 = add_expression_groups(methylation_df, config["expr_col"])
-    weighted_df = compute_weighted_scores(grouped_df, grouped_features)
-    weighted_stats, weighted_pairwise = run_group_level_statistics(grouped_df, grouped_features, weighted_df)
+    boxplot_features = filter_boxplot_features(grouped_features)
+    weighted_df = compute_shap_weighted_scores(grouped_df, boxplot_features)
+    weighted_stats, weighted_pairwise = run_group_level_statistics(weighted_df)
     write_weighted_stats_outputs(output_dir, config["title"], weighted_stats, weighted_pairwise)
     plot_scatter_figure(grouped_features, grouped_df, output_dir)
-    plot_weighted_boxplot_figure(weighted_df, weighted_pairwise, output_dir)
+    plot_boxplot_figures(weighted_df, weighted_pairwise, output_dir)
 
 
 def validate_features(grouped_features: Dict[str, List[Tuple[str, float]]], result_file: str) -> None:
-    missing_groups = [group for group in FEATURE_GROUPS if not grouped_features[group]]
+    missing_groups = [group for group in BOXPLOT_FEATURE_GROUPS if not grouped_features[group]]
     if missing_groups:
         raise ValueError(f"{result_file} has no positive-SHAP features for groups: {', '.join(missing_groups)}")
 
@@ -611,7 +476,7 @@ def main() -> None:
         grouped_features = parse_shap_features(result_path)
         validate_features(grouped_features, config["result_file"])
         process_target(grouped_features, methylation_df, config, rca_dir / config["output_dir"])
-        print(f"Saved scatter plots and weighted boxplots for {config['title']} -> {rca_dir / config['output_dir']}")
+        print(f"Saved scatter plots and SHAP-weighted boxplots for {config['title']} -> {rca_dir / config['output_dir']}")
 
 
 if __name__ == "__main__":
