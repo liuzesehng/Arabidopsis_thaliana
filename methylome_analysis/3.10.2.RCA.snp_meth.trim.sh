@@ -1,19 +1,19 @@
 #!/bin/bash
 # 初始化列名数组
-columns=("tem")
+columns=("Temperature")
 
-# 动态生成 CG_1 到 CG_226
-for i in {1..254}; do
+# 动态生成 CG_1 到 CG_262
+for i in {1..262}; do
     columns+=("CG_$i")
 done
 
-# 动态生成 CHG_1 到 CHG_301
-for i in {1..325}; do
+# 动态生成 CHG_1 到 CHG_337
+for i in {1..337}; do
     columns+=("CHG_$i")
 done
 
-# 动态生成 CHH_1 到 CHH_1379
-for i in {1..1774}; do
+# 动态生成 CHH_1 到 CHH_1826
+for i in {1..1826}; do
     columns+=("CHH_$i")
 done
 
@@ -27,7 +27,7 @@ done
 
 columns+=("total" "α" "β" "β1" "β2" "α/%" "β/%" "β1/%" "β2/%")
 # 写入表头
-echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.snp_meth.tsv
+echo -e "$(IFS=$'\t'; echo "${columns[*]}")" > RCA/Alt.all.snp_meth.tsv
 
 # 定义函数处理 bedGraph 文件
 process_bedgraph() {
@@ -35,7 +35,7 @@ process_bedgraph() {
     local max=$2     # 最大迭代数
     local folder=$3  # 文件夹路径
     for i in $(seq 1 $max); do
-        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.filter.bedGraph)
+        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
         value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
         if [ -z "$value" ]; then
             value=""
@@ -50,7 +50,7 @@ process_bedgraph1() {
     local max=$2     # 最大迭代数
     local folder=$3  # 文件夹路径
     for i in $(seq 1 $max); do
-        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.filter.bedGraph)
+        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
         value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
         if [ -z "$value" ]; then
             value=""
@@ -65,7 +65,7 @@ process_bedgraph2() {
     local max=$2     # 最大迭代数
     local folder=$3  # 文件夹路径
     for i in $(seq 1 $max); do
-        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.filter.bedGraph)
+        j=$(awk "NR == $i {print \$3}" meth/${prefix}.CV.before.bedGraph)
         value=$(awk "\$3 == \"$j\" {print \$4}" "$folder")
         if [ -z "$value" ]; then
             value=""
@@ -99,12 +99,12 @@ do
         col2+=("$tem")
 
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph1 "CG" 254 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHG" 325 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph1 "CHH" 1774 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CG" 254 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHG" 325 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph2 "CHH" 1774 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CG" 262 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CHG" 337 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph1 "CHH" 1826 "Abnormal_me/bismark/${name_array[0]}/${name_array[0]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CG" 262 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CHG" 337 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph2 "CHH" 1826 "Abnormal_me/bismark/${name_array[1]}/${name_array[1]}.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
 
         # 处理 snp 数据
         p=$(awk -v var="$name" -F',' '($1 == var || $11 == var) { print $30 }' Unnormal.csv | uniq)
@@ -182,15 +182,15 @@ do
     else
         col+=("$tem")
         if [ -z "$name2" ]; then
-            for i in {1..2353}
+            for i in {1..2425}
             do
                 col+=("")
             done
         else
             # 处理 CG, CHG, CHH 数据
-            process_bedgraph "CG" 254 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHG" 325 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-            process_bedgraph "CHH" 1774 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CG" 262 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CHG" 337 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+            process_bedgraph "CHH" 1826 "Abnormal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
         fi
 
         # 处理 snp 数据
@@ -258,7 +258,7 @@ do
         fi
         col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
-        echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp_meth.tsv
+        echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.all.snp_meth.tsv
         col=()
     fi
 done
@@ -277,15 +277,15 @@ do
     name2=$(awk '$1 == "'$name'" {print $2}' meth/Ala.nor.meth.txt)
     if [ -z "$name2" ]; then
         echo "$name meth is empty"
-        for i in {1..2353}
+        for i in {1..2425}
         do
             col+=("")
         done
     else
         # 处理 CG, CHG, CHH 数据
-        process_bedgraph "CG" 254 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHG" 325 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
-        process_bedgraph "CHH" 1774 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CG" 262 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CHG" 337 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHG.RCA.promoter_terminator.processed.bedGraph"
+        process_bedgraph "CHH" 1826 "Normal_me/bismark/$name2/$name2.nameSorted.deduplicated.CHH.RCA.promoter_terminator.processed.bedGraph"
     fi
 
     # 处理 snp 数据
@@ -353,6 +353,6 @@ do
     fi
     col+=($sum $value2 $sum2 $value3 $value4 $per2 $persum2 $per3 $per4)
 
-    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.snp_meth.tsv
+    echo -e "$(IFS=$'\t'; echo "${col[*]}")" >> RCA/Alt.all.snp_meth.tsv
     col=()
 done

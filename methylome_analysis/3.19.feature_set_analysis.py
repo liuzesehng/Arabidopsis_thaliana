@@ -1,367 +1,437 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-特征集合分析脚本
-从XGBoost优化结果中提取特征，进行集合运算并绘制韦恩图
-同时分析RCA结果中的significant_sites.tsv文件，根据trend列进行分类分析
-"""
+from __future__ import annotations
 
 import re
-import pandas as pd
-import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Tuple
+
 import matplotlib.pyplot as plt
-from upsetplot import plot as upset_plot
-import glob
+import pandas as pd
+from matplotlib import gridspec
 
-def extract_features_from_file(filepath):
-    """从文件中提取特征列表"""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 查找 "特征列表:" 后面的内容
-        match = re.search(r'特征列表:\s*([^\n]+)', content)
-        if match:
-            feature_str = match.group(1)
-            # 分割特征，去除空格
-            features = [f.strip() for f in feature_str.split(',')]
-            return set(features)
-        else:
-            print(f"警告: 在 {filepath} 中未找到特征列表")
-            return set()
-    except FileNotFoundError:
-        print(f"错误: 文件不存在 - {filepath}")
-        return set()
-    except Exception as e:
-        print(f"错误: 读取文件 {filepath} 时出错 - {str(e)}")
-        return set()
 
-def extract_sites_by_trend(rca_base_path, trend_category):
-    """从RCA文件夹中提取特定trend类别的所有site"""
-    sites = set()
-    folders = ['A_TPM', 'A_per_TPM', 'B_TPM', 'B_per_TPM', 'total_TPM']
-    
-    for folder in folders:
-        folder_path = os.path.join(rca_base_path, folder)
-        if not os.path.exists(folder_path):
-            print(f"  警告: 文件夹不存在 - {folder_path}")
+BASE_DIR = Path(
+    "/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/Arabidopsis_thaliana/list/xgboot/TPM_4.5_all"
+)
+FEATURE_DATA_DIR = BASE_DIR / "feature_data_extraction"
+OUTPUT_DIR = BASE_DIR / "temperature_meth_plots"
+GFF_PATH = Path(
+    "/datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/refgen/GCF_000001735.4_TAIR10.1_genomic.gff"
+)
+
+DATASETS = ["A_TPM", "A_per_TPM", "B_TPM", "B_per_TPM", "total_TPM"]
+TYPE_ORDER = ["CHH", "CHG", "CG", "SNP"]
+DATASET_ORDER = ["A_TPM", "A_per_TPM", "B_TPM", "B_per_TPM", "total_TPM"]
+UPSET_ORDER = DATASET_ORDER + TYPE_ORDER
+DATASET_LABELS = {
+    "A_TPM": "α",
+    "A_per_TPM": "α%",
+    "B_TPM": "β",
+    "B_per_TPM": "β%",
+    "total_TPM": "total",
+}
+TYPE_LABELS = {"CHH": "CHH", "CHG": "CHG", "CG": "CG", "SNP": "SNP"}
+REGION_ORDER = ["upstream", "gene body", "downstream"]
+REGION_FILENAME = {
+    "upstream": "upstream",
+    "gene body": "gene_body",
+    "downstream": "downstream",
+}
+REGION_COLORS = {
+    "upstream": "#5B8FF9",
+    "gene body": "#5AD8A6",
+    "downstream": "#F6BD16",
+}
+TYPE_COLORS = {
+    "CHH": "#C44E52",
+    "CHG": "#4E79A7",
+    "CG": "#59A14F",
+    "SNP": "#B07AA1",
+}
+
+
+@dataclass(frozen=True)
+class GeneRegion:
+    chrom: str
+    strand: str
+    gene_start: int
+    gene_end: int
+    upstream_start: int
+    upstream_end: int
+    downstream_start: int
+    downstream_end: int
+
+
+def parse_feature_importances(path: Path) -> Dict[str, float]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    capture = False
+    feature_values: Dict[str, float] = {}
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        if "所有特征及其平均|SHAP|值" in line:
+            capture = True
             continue
-        
-        # 查找所有以significant_sites.tsv结尾的文件
-        pattern = os.path.join(folder_path, '*significant_sites.tsv')
-        files = glob.glob(pattern)
-        
-        for file in files:
-            try:
-                df = pd.read_csv(file, sep='\t')
-                if 'trend' in df.columns and 'site' in df.columns:
-                    # 提取特定trend的site
-                    trend_sites = df[df['trend'] == trend_category]['site'].tolist()
-                    sites.update(trend_sites)
-            except Exception as e:
-                print(f"  警告: 读取文件 {file} 时出错 - {str(e)}")
-    
-    return sites
+        if not capture:
+            continue
+        if not line.strip():
+            continue
+        if line.startswith("SHAP特征重要性分析"):
+            break
+        match = re.match(
+            r"^\s*([A-Za-z]+_\d+|snp_\d+)\s*:\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*$",
+            line,
+        )
+        if match:
+            feature_values[match.group(1)] = float(match.group(2))
 
-def save_features_to_csv(feature_set, output_file, column_name='Feature'):
-    """将特征集合保存为CSV文件"""
-    df = pd.DataFrame(sorted(list(feature_set)), columns=[column_name])
-    df.to_csv(output_file, index=False)
-    print(f"  保存CSV: {output_file} ({len(feature_set)} 个特征)")
+    if not feature_values:
+        raise ValueError(f"Failed to parse SHAP feature values from {path}")
+    return {feature: value for feature, value in feature_values.items() if value > 0}
 
-def main():
-    # 基础路径
-    base_path = "../../list/xgboot/TPM_4.5"
-    output_dir = "../../list/xgboot/TPM_4.5/feature_analysis"
-    rca_base_path = "../../list/RCA"
-    
-    # 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print("=" * 80)
-    print("特征集合分析 (XGBoost + RCA)")
-    print("=" * 80)
-    
-    # ========================================
-    # 1. 提取特征
-    # ========================================
-    print("\n[步骤 1] 提取特征列表...")
-    
-    # 表达量相关特征
-    SA = extract_features_from_file(f"{base_path}/A_TPM_optimization_results.txt")
-    SB = extract_features_from_file(f"{base_path}/B_TPM_optimization_results.txt")
-    ST = extract_features_from_file(f"{base_path}/total_TPM_optimization_results.txt")
-    
-    print(f"  SA (A_TPM): {len(SA)} 个特征")
-    print(f"  SB (B_TPM): {len(SB)} 个特征")
-    print(f"  ST (total_TPM): {len(ST)} 个特征")
-    
-    # 剪接相关特征
-    SPa = extract_features_from_file(f"{base_path}/A_per_TPM_optimization_results.txt")
-    SPb = extract_features_from_file(f"{base_path}/B_per_TPM_optimization_results.txt")
-    
-    print(f"  SPα (A_per_TPM): {len(SPa)} 个特征")
-    print(f"  SPβ (B_per_TPM): {len(SPb)} 个特征")
-    
-    # ========================================
-    # 2. 计算核心集合
-    # ========================================
-    print("\n[步骤 2] 计算核心集合...")
-    
-    # Expression = SA ∩ SB ∩ ST (表达量核心)
-    Expression = SA & SB & ST
-    print(f"  Expression (SA ∩ SB ∩ ST): {len(Expression)} 个特征")
-    
-    # Expression_Ratio = SPα ∩ SPβ (表达比例核心)
-    Expression_Ratio = SPa & SPb
-    print(f"  Expression_Ratio (SPα ∩ SPβ): {len(Expression_Ratio)} 个特征")
-    
-    # ========================================
-    # 3. 保存CSV文件
-    # ========================================
-    print("\n[步骤 3] 保存CSV文件...")
-    
-    # 保存核心集合
-    save_features_to_csv(Expression, 
-                        f"{output_dir}/Expression.csv",
-                        "Expression_Feature")
-    
-    save_features_to_csv(Expression_Ratio,
-                        f"{output_dir}/Expression_Ratio.csv",
-                        "Expression_Ratio_Feature")
-    
-    # ========================================
-    # 4. 生成Upset图
-    # ========================================
-    print("\n[步骤 4] 生成Upset图...")
-    
-    # 准备Upset图数据 - 使用5个原始集合
-    all_features = SA | SB | ST | SPa | SPb
-    
-    # 创建布尔型DataFrame
-    upset_data = pd.DataFrame({
-        'ST': [f in ST for f in all_features],
-        'SA': [f in SA for f in all_features],
-        'SB': [f in SB for f in all_features],
-        'SPα': [f in SPa for f in all_features],
-        'SPβ': [f in SPb for f in all_features]
-    }, index=list(all_features))
-    
-    # 转换为MultiIndex格式
-    upset_data = upset_data.set_index(['ST', 'SA', 'SB', 'SPα', 'SPβ'])
-    upset_counts = upset_data.groupby(level=[0, 1, 2, 3, 4]).size()
-    
-    # 绘制Upset图
-    fig = plt.figure(figsize=(12, 7))
-    upset_plot(upset_counts, 
-               fig=fig,
-               show_counts=True,
-               element_size=40)
-    
-    plt.suptitle('Feature Set Intersection Analysis (ST, SA, SB, SPα, SPβ)', 
-                 fontsize=14, 
-                 fontweight='bold',
-                 y=0.98)
-    
-    # 保存图片
-    upset_file = f"{output_dir}/feature_upset_plot.png"
-    plt.tight_layout()
-    plt.savefig(upset_file, dpi=300, bbox_inches='tight')
-    plt.savefig(f"{output_dir}/feature_upset_plot.pdf", bbox_inches='tight')
-    print(f"  保存Upset图: {upset_file}")
-    print(f"  保存Upset图: {output_dir}/feature_upset_plot.pdf")
-    plt.close()
-    
-    # ========================================
-    # 5. 分析RCA结果 - 根据trend分类
-    # ========================================
-    print("\n[步骤 5] 分析RCA结果 - 提取trend分类的sites...")
-    
-    # 定义6个trend类别
-    trend_categories = ['Up', 'Down', 'Up-like_HighTemp', 'Up-like_LowMid', 
-                       'Down-like_HighTemp', 'Down-like_LowTemp']
-    
-    # 提取每个trend类别的sites
-    trend_sets = {}
-    for trend in trend_categories:
-        sites = extract_sites_by_trend(rca_base_path, trend)
-        trend_sets[trend] = sites
-        print(f"  {trend}: {len(sites)} 个sites")
-    
-    # ========================================
-    # 6. 生成Trend数据集与XGBoost特征集的Upset图
-    # ========================================
-    print("\n[步骤 6] 生成Trend与XGBoost特征集的Upset图...")
-    
-    # 合并所有集合（6个trend + 5个XGBoost特征集）
-    all_items = (trend_sets['Up'] | trend_sets['Down'] | 
-                 trend_sets['Up-like_HighTemp'] | trend_sets['Up-like_LowMid'] |
-                 trend_sets['Down-like_HighTemp'] | trend_sets['Down-like_LowTemp'] |
-                 ST | SA | SB | SPa | SPb)
-    
-    # 创建布尔型DataFrame
-    upset_data_combined = pd.DataFrame({
-        'Up': [item in trend_sets['Up'] for item in all_items],
-        'Down': [item in trend_sets['Down'] for item in all_items],
-        'Up-like_HighTemp': [item in trend_sets['Up-like_HighTemp'] for item in all_items],
-        'Up-like_LowMid': [item in trend_sets['Up-like_LowMid'] for item in all_items],
-        'Down-like_HighTemp': [item in trend_sets['Down-like_HighTemp'] for item in all_items],
-        'Down-like_LowTemp': [item in trend_sets['Down-like_LowTemp'] for item in all_items],
-        'ST': [item in ST for item in all_items],
-        'SA': [item in SA for item in all_items],
-        'SB': [item in SB for item in all_items],
-        'SPα': [item in SPa for item in all_items],
-        'SPβ': [item in SPb for item in all_items]
-    }, index=list(all_items))
-    
-    # 转换为MultiIndex格式
-    upset_data_combined = upset_data_combined.set_index([
-        'Up', 'Down', 'Up-like_HighTemp', 'Up-like_LowMid', 
-        'Down-like_HighTemp', 'Down-like_LowTemp',
-        'ST', 'SA', 'SB', 'SPα', 'SPβ'
-    ])
-    upset_counts_combined = upset_data_combined.groupby(level=list(range(11))).size()
-    
-    # 绘制Upset图
-    fig = plt.figure(figsize=(16, 9))
-    upset_plot(upset_counts_combined, 
-               fig=fig,
-               show_counts=True,
-               element_size=35)
-    
-    plt.suptitle('Trend Categories vs XGBoost Features Intersection Analysis', 
-                 fontsize=14, 
-                 fontweight='bold',
-                 y=0.98)
-    
-    # 保存图片
-    upset_combined_file = f"{output_dir}/trend_xgboost_upset_plot.png"
-    plt.tight_layout()
-    plt.savefig(upset_combined_file, dpi=300, bbox_inches='tight')
-    plt.savefig(f"{output_dir}/trend_xgboost_upset_plot.pdf", bbox_inches='tight')
-    print(f"  保存Upset图: {upset_combined_file}")
-    print(f"  保存Upset图: {output_dir}/trend_xgboost_upset_plot.pdf")
-    plt.close()
-    
-    # ========================================
-    # 7. 计算Trend类别与XGBoost特征集的交集
-    # ========================================
-    print("\n[步骤 7] 计算Trend类别与ST, SA, SB, SPα, SPβ的交集...")
-    
-    # 定义XGBoost特征集
-    xgboost_sets = {
-        'ST': ST,
-        'SA': SA,
-        'SB': SB,
-        'SPα': SPa,
-        'SPβ': SPb
+
+def load_dataset_coords(dataset: str) -> pd.DataFrame:
+    frames: List[pd.DataFrame] = []
+
+    for feature_type in ["CHH", "CHG", "CG"]:
+        path = FEATURE_DATA_DIR / dataset / f"{dataset}_{feature_type}_data.csv"
+        df = pd.read_csv(path)
+        renamed = df.rename(columns={"Feature": "feature"})
+        renamed["type"] = feature_type
+        renamed["chr"] = renamed["chr"].astype(str)
+        renamed["start"] = renamed["start"].astype(int)
+        renamed["end"] = renamed["end"].astype(int)
+        renamed["position"] = renamed["start"].astype(int)
+        frames.append(renamed[["feature", "type", "chr", "start", "end", "position"]])
+
+    snp_path = FEATURE_DATA_DIR / dataset / f"{dataset}_snp_data.csv"
+    snp_df = pd.read_csv(snp_path)
+    snp_df = snp_df.rename(
+        columns={"Feature": "feature", "#Chromosome": "chr", "Position": "position"}
+    )
+    snp_df["type"] = "SNP"
+    snp_df["position"] = snp_df["position"].astype(int)
+    snp_df["start"] = snp_df["position"]
+    snp_df["end"] = snp_df["position"]
+    frames.append(snp_df[["feature", "type", "chr", "start", "end", "position"]])
+
+    merged = pd.concat(frames, ignore_index=True).drop_duplicates("feature")
+    return merged
+
+
+def load_gene_region(gff_path: Path, gene_id: str = "AT2G39730", flank_size: int = 2000) -> GeneRegion:
+    with gff_path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 9 or parts[2] != "gene":
+                continue
+            if f"ID=gene-{gene_id}" not in parts[8] and f"locus_tag={gene_id}" not in parts[8]:
+                continue
+
+            chrom = normalize_chrom(parts[0])
+            start = int(parts[3])
+            end = int(parts[4])
+            strand = parts[6]
+            if strand == "-":
+                upstream_start = end + 1
+                upstream_end = end + flank_size
+                downstream_start = max(1, start - flank_size)
+                downstream_end = start - 1
+            else:
+                upstream_start = max(1, start - flank_size)
+                upstream_end = start - 1
+                downstream_start = end + 1
+                downstream_end = end + flank_size
+            return GeneRegion(
+                chrom=chrom,
+                strand=strand,
+                gene_start=start,
+                gene_end=end,
+                upstream_start=upstream_start,
+                upstream_end=upstream_end,
+                downstream_start=downstream_start,
+                downstream_end=downstream_end,
+            )
+    raise ValueError(f"Gene {gene_id} not found in {gff_path}")
+
+
+def normalize_chrom(chrom: str) -> str:
+    chrom = str(chrom).strip()
+    if chrom.startswith("NC_"):
+        mapping = {
+            "NC_003070.9": "Chr1",
+            "NC_003071.7": "Chr2",
+            "NC_003074.8": "Chr3",
+            "NC_003075.7": "Chr4",
+            "NC_003076.8": "Chr5",
+        }
+        return mapping.get(chrom, chrom)
+    if chrom.lower().startswith("chr"):
+        suffix = chrom[3:]
+        return f"Chr{suffix}"
+    return chrom
+
+
+def classify_region(chrom: str, position: int, region: GeneRegion) -> str | None:
+    if normalize_chrom(chrom) != region.chrom:
+        return None
+    if region.upstream_start <= position <= region.upstream_end:
+        return "upstream"
+    if region.gene_start <= position <= region.gene_end:
+        return "gene body"
+    if region.downstream_start <= position <= region.downstream_end:
+        return "downstream"
+    return None
+
+
+def build_membership_table() -> pd.DataFrame:
+    region_def = load_gene_region(GFF_PATH)
+    coords_by_dataset = {dataset: load_dataset_coords(dataset) for dataset in DATASETS}
+    shap_by_dataset = {
+        dataset: parse_feature_importances(BASE_DIR / f"{dataset}_import_results.txt")
+        for dataset in DATASETS
     }
-    
-    # 存储所有交集结果
-    trend_xgboost_intersections = {}
-    
-    for trend in trend_categories:
-        print(f"  {trend}:")
-        trend_xgboost_intersections[trend] = {}
-        
-        for xgb_name, xgb_set in xgboost_sets.items():
-            # 计算交集
-            intersection = trend_sets[trend] & xgb_set
-            trend_xgboost_intersections[trend][xgb_name] = intersection
-            
-            print(f"    与{xgb_name}交集: {len(intersection)} 个特征")
-            
-            # 保存交集CSV文件（只保存非空交集）
-            if len(intersection) > 0:
-                save_features_to_csv(
-                    intersection,
-                    f"{output_dir}/{trend}_{xgb_name}_intersection.csv",
-                    f"{trend}_{xgb_name}"
-                )
-    
-    # ========================================
-    # 8. 生成完整统计报告
-    # ========================================
-    print("\n[步骤 8] 生成完整统计报告...")
-    
-    # ========================================
-    # 8. 生成完整统计报告
-    # ========================================
-    print("\n[步骤 8] 生成完整统计报告...")
-    
-    # 构建trend交集报告部分
-    trend_report = "\n5. Trend类别统计:\n"
-    for trend in trend_categories:
-        trend_report += f"   - {trend}: {len(trend_sets[trend])} 个sites\n"
-    
-    trend_report += "\n6. Trend类别与XGBoost特征集的交集:\n"
-    for trend in trend_categories:
-        trend_report += f"   {trend}:\n"
-        for xgb_name in ['ST', 'SA', 'SB', 'SPα', 'SPβ']:
-            intersection_count = len(trend_xgboost_intersections[trend][xgb_name])
-            trend_report += f"     - 与{xgb_name}交集: {intersection_count} 个特征\n"
-    
-    report = f"""
-特征集合分析报告 (XGBoost + RCA)
-{'=' * 80}
 
-1. XGBoost原始特征集合:
-   - SA (A_TPM): {len(SA)} 个特征
-   - SB (B_TPM): {len(SB)} 个特征
-   - ST (total_TPM): {len(ST)} 个特征
-   - SPα (A_per_TPM): {len(SPa)} 个特征
-   - SPβ (B_per_TPM): {len(SPb)} 个特征
+    feature_records: Dict[str, Dict[str, object]] = {}
 
-2. XGBoost核心集合:
-   - Expression (SA ∩ SB ∩ ST): {len(Expression)} 个特征
-   - Expression_Ratio (SPα ∩ SPβ): {len(Expression_Ratio)} 个特征
+    for dataset in DATASETS:
+        coords = coords_by_dataset[dataset].set_index("feature", drop=False)
+        for feature, shap_value in shap_by_dataset[dataset].items():
+            if feature not in coords.index:
+                continue
+            row = coords.loc[feature]
+            region = classify_region(str(row["chr"]), int(row["position"]), region_def)
+            if region is None:
+                continue
 
-3. XGBoost交集分析:
-   - 总特征数: {len(all_features)} 个
-   - ST独有: {len(ST - SA - SB - SPa - SPb)} 个特征
-   - SA独有: {len(SA - ST - SB - SPa - SPb)} 个特征
-   - SB独有: {len(SB - ST - SA - SPa - SPb)} 个特征
-   - SPα独有: {len(SPa - ST - SA - SB - SPb)} 个特征
-   - SPβ独有: {len(SPb - ST - SA - SB - SPa)} 个特征
-   - Expression (SA ∩ SB ∩ ST): {len(Expression)} 个特征
-   - Expression_Ratio (SPα ∩ SPβ): {len(Expression_Ratio)} 个特征
-   - Expression与Expression_Ratio共同: {len(Expression & Expression_Ratio)} 个特征
+            if feature not in feature_records:
+                feature_type = str(row["type"])
+                record = {
+                    "feature": feature,
+                    "type": feature_type,
+                    "chr": normalize_chrom(str(row["chr"])),
+                    "position": int(row["position"]),
+                    "start": int(row["start"]),
+                    "end": int(row["end"]),
+                    "region": region,
+                }
+                for ds in DATASETS:
+                    record[f"{ds}_shap_value"] = 0.0
+                    record[f"in_{ds}"] = 0
+                for feature_type_name in TYPE_ORDER:
+                    record[f"is_{feature_type_name}"] = int(feature_type == feature_type_name)
+                feature_records[feature] = record
 
-4. RCA数据统计:
-   - 总item数（Trend + XGBoost）: {len(all_items)} 个
-{trend_report}
+            feature_records[feature][f"{dataset}_shap_value"] = float(shap_value)
+            feature_records[feature][f"in_{dataset}"] = 1
 
-7. 输出文件:
-   XGBoost核心集合CSV文件:
-   - {output_dir}/Expression.csv
-   - {output_dir}/Expression_Ratio.csv
-   
-   Trend与XGBoost特征集交集CSV文件:"""
-    
-    for trend in trend_categories:
-        for xgb_name in ['ST', 'SA', 'SB', 'SPα', 'SPβ']:
-            if len(trend_xgboost_intersections[trend][xgb_name]) > 0:
-                report += f"\n   - {output_dir}/{trend}_{xgb_name}_intersection.csv"
-    
-    report += f"""
-   
-   可视化文件:
-   - {output_dir}/feature_upset_plot.png (XGBoost特征集)
-   - {output_dir}/feature_upset_plot.pdf
-   - {output_dir}/trend_xgboost_upset_plot.png (Trend + XGBoost)
-   - {output_dir}/trend_xgboost_upset_plot.pdf
+    memberships = pd.DataFrame(feature_records.values())
+    if memberships.empty:
+        raise ValueError("No SHAP-positive features found inside AT2G39730 upstream/body/downstream regions.")
 
-{'=' * 80}
-"""
-    
-    # 保存报告
-    report_file = f"{output_dir}/analysis_report.txt"
-    with open(report_file, 'w', encoding='utf-8') as f:
-        f.write(report)
-    
-    print(report)
-    print(f"\n报告已保存到: {report_file}")
-    print("\n分析完成！")
+    memberships["dataset_membership_count"] = memberships[[f"in_{ds}" for ds in DATASETS]].sum(axis=1)
+    memberships["intersection_label"] = memberships.apply(
+        lambda row: build_intersection_label(row, UPSET_ORDER),
+        axis=1,
+    )
+    memberships = memberships.sort_values(
+        ["region", "dataset_membership_count", "type", "position", "feature"],
+        ascending=[True, False, True, True, True],
+    ).reset_index(drop=True)
+    return memberships
+
+
+def build_intersection_label(row: pd.Series, order: Iterable[str]) -> str:
+    labels = []
+    for name in order:
+        if name in DATASETS and int(row[f"in_{name}"]) == 1:
+            labels.append(DATASET_LABELS[name])
+        elif name in TYPE_ORDER and int(row[f"is_{name}"]) == 1:
+            labels.append(TYPE_LABELS[name])
+    return " | ".join(labels)
+
+
+def summarize_region(df: pd.DataFrame, region_name: str) -> pd.DataFrame:
+    region_df = df[df["region"] == region_name].copy()
+    if region_df.empty:
+        columns = ["region", "intersection_label", "feature_count"] + UPSET_ORDER
+        return pd.DataFrame(columns=columns)
+
+    group_cols = [f"in_{ds}" for ds in DATASETS] + [f"is_{feature_type}" for feature_type in TYPE_ORDER]
+    summary = (
+        region_df.groupby(group_cols, dropna=False)
+        .size()
+        .reset_index(name="feature_count")
+    )
+    summary["region"] = region_name
+    summary["intersection_label"] = summary.apply(
+        lambda row: build_summary_label(row),
+        axis=1,
+    )
+    for dataset in DATASETS:
+        summary[dataset] = summary[f"in_{dataset}"].astype(int)
+    for feature_type in TYPE_ORDER:
+        summary[feature_type] = summary[f"is_{feature_type}"].astype(int)
+
+    summary = summary.sort_values(
+        ["feature_count", "intersection_label"],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+    keep_cols = ["region", "intersection_label", "feature_count"] + UPSET_ORDER
+    return summary[keep_cols]
+
+
+def build_summary_label(row: pd.Series) -> str:
+    labels = []
+    for dataset in DATASETS:
+        if int(row[f"in_{dataset}"]) == 1:
+            labels.append(DATASET_LABELS[dataset])
+    for feature_type in TYPE_ORDER:
+        if int(row[f"is_{feature_type}"]) == 1:
+            labels.append(TYPE_LABELS[feature_type])
+    return " | ".join(labels)
+
+
+def plot_region_upset(summary_df: pd.DataFrame, region_name: str, output_prefix: Path) -> None:
+    plt.rcParams["font.family"] = "DejaVu Sans"
+
+    display_df = summary_df.copy()
+    counts = display_df["feature_count"].astype(int).tolist()
+    set_sizes = {
+        name: int((display_df[name].astype(int) * display_df["feature_count"].astype(int)).sum())
+        for name in UPSET_ORDER
+    }
+    display_row_order = [
+        name for name, size in sorted(set_sizes.items(), key=lambda item: (item[1], item[0])) if size > 0
+    ]
+    y_labels = [
+        DATASET_LABELS[name] if name in DATASETS else TYPE_LABELS[name]
+        for name in display_row_order
+    ]
+    y_positions = list(range(len(y_labels)))
+
+    fig_width = max(7.0, len(display_df) * 1.05 + 2.8)
+    fig = plt.figure(figsize=(fig_width, fig_width * 1.48), facecolor="white")
+    grid = gridspec.GridSpec(
+        nrows=2,
+        ncols=2,
+        width_ratios=[1.0, max(2.8, len(display_df) * 0.92)],
+        height_ratios=[2.2, 3.6],
+        wspace=0.42,
+        hspace=0.08,
+    )
+
+    ax_bar = fig.add_subplot(grid[0, 1])
+    ax_matrix = fig.add_subplot(grid[1, 1], sharex=ax_bar)
+    ax_setsize = fig.add_subplot(grid[1, 0], sharey=ax_matrix)
+    ax_blank = fig.add_subplot(grid[0, 0])
+    ax_blank.axis("off")
+
+    x = list(range(len(display_df)))
+    bar_color = "#111111"
+    ax_bar.bar(x, counts, color=bar_color, edgecolor=bar_color, linewidth=0.4, width=0.54)
+    ax_bar.set_ylabel("Intersection size", fontsize=18)
+    ax_bar.grid(axis="y", color="#E5E5E5", linewidth=0.8)
+    ax_bar.set_axisbelow(True)
+    ax_bar.spines["top"].set_visible(False)
+    ax_bar.spines["right"].set_visible(False)
+    ax_bar.tick_params(axis="x", bottom=False, labelbottom=False)
+    ax_bar.tick_params(axis="y", labelsize=16)
+    ax_bar.set_ylim(0, max(counts) * 1.12 if counts else 1)
+
+    for idx, count in enumerate(counts):
+        ax_bar.text(
+            idx,
+            count + max(counts) * 0.008,
+            str(count),
+            ha="center",
+            va="bottom",
+            fontsize=17,
+        )
+
+    for y in y_positions:
+        color = "#F6F6F6" if y % 2 == 0 else "#FFFFFF"
+        ax_matrix.axhspan(y - 0.5, y + 0.5, color=color, zorder=0)
+        ax_setsize.axhspan(y - 0.5, y + 0.5, color=color, zorder=0)
+
+    for idx, (_, row) in enumerate(display_df.iterrows()):
+        active_y: List[int] = []
+        for y, member_name in enumerate(display_row_order):
+            is_active = int(row[member_name]) == 1
+            if is_active:
+                active_y.append(y)
+                ax_matrix.scatter(idx, y, s=245, color="#111111", zorder=3)
+            else:
+                ax_matrix.scatter(idx, y, s=145, color="#D0D0D0", zorder=2)
+        if len(active_y) >= 2:
+            ax_matrix.plot([idx, idx], [min(active_y), max(active_y)], color="#111111", linewidth=2.2, zorder=1)
+
+    set_size_values = [set_sizes[name] for name in display_row_order]
+    ax_setsize.barh(y_positions, set_size_values, height=0.50, color="#111111", edgecolor="#111111", linewidth=0.3)
+    for y, value in zip(y_positions, set_size_values):
+        ax_setsize.text(
+            value + max(set_size_values) * 0.05,
+            y,
+            str(value),
+            va="center",
+            ha="right",
+            fontsize=16,
+        )
+
+    ax_setsize.set_xlabel("")
+    ax_setsize.invert_xaxis()
+    ax_setsize.tick_params(axis="x", labelsize=16, pad=2)
+    ax_setsize.tick_params(axis="y", left=False, labelleft=False)
+    ax_setsize.spines["top"].set_visible(False)
+    ax_setsize.spines["right"].set_visible(False)
+    ax_setsize.spines["left"].set_visible(False)
+    ax_setsize.set_xlim(max(set_size_values) * 1.30 if set_size_values else 1, 0)
+    guide_x = 100 if set_size_values and max(set_size_values) >= 100 else (max(set_size_values) * 0.5 if set_size_values else 0)
+    if guide_x:
+        ax_setsize.axvline(guide_x, color="#BFBFBF", linewidth=2.6, zorder=4)
+        ax_setsize.set_xticks([guide_x, 0])
+        ax_setsize.set_xticklabels([str(int(round(guide_x))), "0"])
+    else:
+        ax_setsize.set_xticks([0])
+        ax_setsize.set_xticklabels(["0"])
+
+    ax_matrix.set_yticks(y_positions)
+    ax_matrix.set_yticklabels(y_labels, fontsize=17)
+    ax_matrix.set_ylim(len(y_labels) - 0.5, -0.5)
+    ax_matrix.set_xlim(-0.5, len(display_df) - 0.5 if len(display_df) else 0.5)
+    ax_matrix.set_xticks(x)
+    ax_matrix.set_xticklabels([])
+    ax_matrix.tick_params(axis="x", bottom=False)
+    ax_matrix.tick_params(axis="y", length=0, pad=4)
+    ax_matrix.spines["top"].set_visible(False)
+    ax_matrix.spines["right"].set_visible(False)
+    ax_matrix.spines["bottom"].set_visible(False)
+
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.985, bottom=0.055)
+    fig.savefig(output_prefix.with_suffix(".png"), dpi=300, bbox_inches="tight")
+    fig.savefig(output_prefix.with_suffix(".pdf"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def write_outputs(memberships: pd.DataFrame) -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    membership_path = OUTPUT_DIR / "AT2G39730_region_feature_memberships.tsv"
+    memberships.to_csv(membership_path, sep="\t", index=False)
+
+    for region in REGION_ORDER:
+        summary = summarize_region(memberships, region)
+        prefix = OUTPUT_DIR / f"AT2G39730_{REGION_FILENAME[region]}_upset"
+        summary.to_csv(prefix.with_name(prefix.name + "_summary.tsv"), sep="\t", index=False)
+        plot_region_upset(summary, region, prefix)
+
+
+def main() -> None:
+    memberships = build_membership_table()
+    write_outputs(memberships)
+
 
 if __name__ == "__main__":
     main()

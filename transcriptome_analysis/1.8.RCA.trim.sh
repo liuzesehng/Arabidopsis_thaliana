@@ -1,6 +1,6 @@
 #!/bin/bash
 #RCA数据整理
-awk -F'\t' -v OFS='\t' 'NR==1{ $1="tem"; print $0, "total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"; exit }' Ala.ab.location.climate.txt > RCA/RCA.climate.tsv
+awk -F'\t' -v OFS='\t' 'NR==1{ $1="Temperature"; print $0, "total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"; exit }' Ala.ab.location.climate.txt > RCA/RCA.climate.tsv
 for path in $(ls RCA/Abnormal/*/*.txt)
 do    
     # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段

@@ -1,5 +1,5 @@
 #!/bin/bash
-#bismark_genome_preparation --parallel 16 /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/refgen
+bismark_genome_preparation --parallel 16 /datapool/home/2023102768/lico_share_dir/life-gongl/zesheng/ref/Arabidopsis_thaliana/refgen
 
 # 定义处理每个文件对或单文件的函数
 process_fastq() {
