@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate SHAP-positive feature scatter plots and SHAP-weighted boxplots."""
+"""Generate SHAP-positive feature scatter plots and unweighted boxplots."""
 
 from __future__ import annotations
 
@@ -21,11 +21,12 @@ BOXPLOT_FEATURE_GROUPS = ("CHH", "CHG", "CG")
 DISPLAY_GROUPS = {"CHH": "CHH", "CHG": "CHG", "CG": "CG", "snp": "SNP"}
 SCATTER_TOP_N = 10
 EXPRESSION_ORDER = ("High", "Medium", "Low")
+BOXPLOT_ORDER = ("Low", "Medium", "High")
 EXPRESSION_LABELS = {"High": "High", "Medium": "Medium", "Low": "Low"}
 PAIRWISE_COMPARISONS = (("High", "Medium"), ("High", "Low"), ("Medium", "Low"))
 PAIRWISE_LEVELS = {"High_vs_Medium": 1, "Medium_vs_Low": 2, "High_vs_Low": 3}
 GROUP_COLORS = {"High": "#d1495b", "Medium": "#2a9d8f", "Low": "#4c6ef5"}
-BOX_OFFSETS = {"High": -0.24, "Medium": 0.0, "Low": 0.24}
+BOX_OFFSETS = {"Low": -0.24, "Medium": 0.0, "High": 0.24}
 TARGET_CONFIGS = (
     {"result_file": "total_TPM_import_results.txt", "expr_col": "total", "output_dir": "total_TPM", "title": "total_TPM"},
     {"result_file": "A_TPM_import_results.txt", "expr_col": "α", "output_dir": "A_TPM", "title": "A_TPM"},
@@ -104,19 +105,27 @@ def load_methylation_data(tsv_path: Path) -> pd.DataFrame:
     return data_frame.apply(pd.to_numeric, errors="coerce")
 
 
+def load_coverage_data(tsv_path: Path) -> pd.DataFrame:
+    data_frame = pd.read_csv(tsv_path, sep="\t", low_memory=False)
+    return data_frame.apply(pd.to_numeric, errors="coerce")
+
+
 def add_expression_groups(data_frame: pd.DataFrame, expr_col: str) -> Tuple[pd.DataFrame, float, float]:
     expr_series = pd.to_numeric(data_frame[expr_col], errors="coerce")
-    eligible = expr_series.dropna()
+    eligible = expr_series[(~expr_series.isna()) & (expr_series > 0)]
     if eligible.empty:
         raise ValueError(f"No valid samples found for {expr_col}")
-    q1 = eligible.quantile(0.20)
-    q3 = eligible.quantile(0.80)
+    use_log = "%" not in expr_col
+    transformed = np.log1p(eligible) if use_log else eligible
+    q1 = transformed.quantile(1 / 3)
+    q3 = transformed.quantile(2 / 3)
     grouped = data_frame.loc[eligible.index].copy()
 
     def classify(value: float) -> str:
-        if value < q1:
+        transformed_value = float(np.log1p(value)) if use_log else float(value)
+        if transformed_value < q1:
             return "Low"
-        if value > q3:
+        if transformed_value > q3:
             return "High"
         return "Medium"
 
@@ -204,28 +213,32 @@ def dunn_pairwise(feature_values: Dict[str, pd.Series]) -> List[Dict[str, object
     return records
 
 
-def compute_shap_weighted_scores(
+def compute_coverage_weighted_scores(
     grouped_data: pd.DataFrame,
+    coverage_data: pd.DataFrame,
     grouped_features: Dict[str, List[Tuple[str, float]]],
 ) -> pd.DataFrame:
     weighted_df = grouped_data[["expression_group"]].copy()
     for group_name in BOXPLOT_FEATURE_GROUPS:
-        feature_items = [(feature, shap) for feature, shap in grouped_features[group_name] if feature in grouped_data.columns]
+        feature_items = [
+            (feature, shap)
+            for feature, shap in grouped_features[group_name]
+            if feature in grouped_data.columns and feature in coverage_data.columns
+        ]
         if not feature_items:
             weighted_df[group_name] = np.nan
             continue
 
         feature_names = [feature for feature, _ in feature_items]
-        weights = np.asarray([shap for _, shap in feature_items], dtype=float)
-        values = grouped_data[feature_names].to_numpy(dtype=float)
-        valid_mask = ~np.isnan(values)
-        normalized_weights = np.broadcast_to(weights, values.shape)
-        weighted_values = np.full(values.shape[0], np.nan, dtype=float)
-        weight_sums = np.where(valid_mask, normalized_weights, 0.0).sum(axis=1)
-        valid_rows = weight_sums > 0
+        methyl_values = grouped_data[feature_names].to_numpy(dtype=float)
+        coverage_values = coverage_data[feature_names].to_numpy(dtype=float)
+        weighted_values = np.full(methyl_values.shape[0], np.nan, dtype=float)
+        valid_mask = (~np.isnan(methyl_values)) & (~np.isnan(coverage_values)) & (coverage_values > 0)
+        coverage_sums = np.where(valid_mask, coverage_values, 0.0).sum(axis=1)
+        valid_rows = coverage_sums > 0
         if np.any(valid_rows):
-            numerators = np.where(valid_mask[valid_rows], values[valid_rows] * normalized_weights[valid_rows], 0.0).sum(axis=1)
-            weighted_values[valid_rows] = numerators / weight_sums[valid_rows]
+            numerators = np.where(valid_mask[valid_rows], methyl_values[valid_rows] * coverage_values[valid_rows], 0.0).sum(axis=1)
+            weighted_values[valid_rows] = numerators / coverage_sums[valid_rows]
         weighted_df[group_name] = weighted_values
     return weighted_df
 
@@ -291,6 +304,30 @@ def run_group_level_statistics(weighted_df: pd.DataFrame) -> Tuple[pd.DataFrame,
 def add_significance_bracket(axis: plt.Axes, x1: float, x2: float, y: float, height: float, label: str) -> None:
     axis.plot([x1, x1, x2, x2], [y, y + height, y + height, y], color="#333333", linewidth=1.0)
     axis.text((x1 + x2) / 2, y + height, label, ha="center", va="bottom", fontsize=15, fontweight="bold")
+
+
+def ensure_pairwise_rows(pairwise_df: pd.DataFrame, feature_name: str) -> pd.DataFrame:
+    subset = pairwise_df[pairwise_df["feature_name"] == feature_name].copy()
+    if not subset.empty:
+        return subset
+
+    rows: List[Dict[str, object]] = []
+    for group1, group2 in PAIRWISE_COMPARISONS:
+        comparison = f"{group1}_vs_{group2}"
+        rows.append(
+            {
+                "comparison": comparison,
+                "group1": group1,
+                "group2": group2,
+                "test_method": "Dunn",
+                "raw_p_value": np.nan,
+                "adj_p_value": np.nan,
+                "star": "",
+                "feature_group": feature_name,
+                "feature_name": feature_name,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def plot_scatter_figure(grouped_features: Dict[str, List[Tuple[str, float]]], grouped_data: pd.DataFrame, output_dir: Path) -> None:
@@ -359,7 +396,7 @@ def plot_single_boxplot(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, ou
     box_width = 0.12
     feature_max = 0.0
 
-    for expr_group in EXPRESSION_ORDER:
+    for expr_group in BOXPLOT_ORDER:
         values = weighted_df.loc[weighted_df["expression_group"] == expr_group, feature_name].dropna()
         if values.empty:
             continue
@@ -380,15 +417,15 @@ def plot_single_boxplot(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, ou
     y_top = max(feature_max * 1.20, 5.0)
     bracket_base = max(y_top * 0.06, 2.0)
     bracket_height = max(y_top * 0.03, 1.0)
-    subset = pairwise_df[pairwise_df["feature_name"] == feature_name].copy()
-    significant_rows = subset[subset["star"] != ""].copy()
+    subset = ensure_pairwise_rows(pairwise_df, feature_name)
+    significant_rows = subset.copy()
     significant_rows["level"] = significant_rows["comparison"].map(PAIRWISE_LEVELS).fillna(1).astype(int)
     significant_rows = significant_rows.sort_values("level")
     for row in significant_rows.itertuples(index=False):
         x1 = 1 + BOX_OFFSETS[row.group1]
         x2 = 1 + BOX_OFFSETS[row.group2]
         y = min(feature_max, y_top) + bracket_base * row.level
-        add_significance_bracket(axis, x1, x2, y, bracket_height, row.star)
+        add_significance_bracket(axis, x1, x2, y, bracket_height, row.star if row.star else "n.s.")
 
     axis.set_xlim(0.55, 1.45)
     axis.set_ylim(0, y_top + bracket_base * max(1, len(significant_rows) + 1))
@@ -401,10 +438,18 @@ def plot_single_boxplot(weighted_df: pd.DataFrame, pairwise_df: pd.DataFrame, ou
 
     legend_handles = [
         Patch(facecolor=GROUP_COLORS[group], edgecolor=GROUP_COLORS[group], alpha=0.35, label=EXPRESSION_LABELS[group])
-        for group in EXPRESSION_ORDER
+        for group in BOXPLOT_ORDER
     ]
-    axis.legend(handles=legend_handles, loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False, fontsize=16)
-    fig.subplots_adjust(left=0.12, right=0.82, top=0.92, bottom=0.15)
+    axis.legend(
+        handles=legend_handles,
+        loc="upper right",
+        bbox_to_anchor=(0.98, 0.98),
+        frameon=False,
+        fontsize=16,
+        borderaxespad=0.0,
+        handlelength=1.2,
+    )
+    fig.subplots_adjust(left=0.12, right=0.96, top=0.92, bottom=0.15)
     fig.savefig(output_dir / f"me_contribution_weighted_boxplot_{feature_name}.png", dpi=300, bbox_inches="tight")
     fig.savefig(output_dir / f"me_contribution_weighted_boxplot_{feature_name}.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -442,13 +487,15 @@ def write_weighted_stats_outputs(output_dir: Path, prefix: str, feature_stats: p
 def process_target(
     grouped_features: Dict[str, List[Tuple[str, float]]],
     methylation_df: pd.DataFrame,
+    coverage_df: pd.DataFrame,
     config: Dict[str, str],
     output_dir: Path,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     grouped_df, _q1, _q3 = add_expression_groups(methylation_df, config["expr_col"])
+    grouped_coverage_df = coverage_df.loc[grouped_df.index].copy()
     boxplot_features = filter_boxplot_features(grouped_features)
-    weighted_df = compute_shap_weighted_scores(grouped_df, boxplot_features)
+    weighted_df = compute_coverage_weighted_scores(grouped_df, grouped_coverage_df, boxplot_features)
     weighted_stats, weighted_pairwise = run_group_level_statistics(weighted_df)
     write_weighted_stats_outputs(output_dir, config["title"], weighted_stats, weighted_pairwise)
     plot_scatter_figure(grouped_features, grouped_df, output_dir)
@@ -465,18 +512,22 @@ def main() -> None:
     configure_fonts()
     rca_dir, result_dir = resolve_io_paths()
     tsv_path = rca_dir / "Alt.all.snp_meth.filtered.tsv"
+    coverage_path = rca_dir / "Alt.weighted.snp_meth.tsv"
     if not tsv_path.exists():
         raise FileNotFoundError(f"Missing methylation matrix: {tsv_path}")
+    if not coverage_path.exists():
+        raise FileNotFoundError(f"Missing coverage matrix: {coverage_path}")
 
     methylation_df = load_methylation_data(tsv_path)
+    coverage_df = load_coverage_data(coverage_path)
     for config in TARGET_CONFIGS:
         result_path = result_dir / config["result_file"]
         if not result_path.exists():
             raise FileNotFoundError(f"Missing import_results file: {result_path}")
         grouped_features = parse_shap_features(result_path)
         validate_features(grouped_features, config["result_file"])
-        process_target(grouped_features, methylation_df, config, rca_dir / config["output_dir"])
-        print(f"Saved scatter plots and SHAP-weighted boxplots for {config['title']} -> {rca_dir / config['output_dir']}")
+        process_target(grouped_features, methylation_df, coverage_df, config, rca_dir / config["output_dir"])
+        print(f"Saved scatter plots and coverage-weighted boxplots for {config['title']} -> {rca_dir / config['output_dir']}")
 
 
 if __name__ == "__main__":

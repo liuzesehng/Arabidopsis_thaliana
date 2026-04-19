@@ -66,8 +66,8 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
 
   plot_data <- plot_data %>%
     mutate(
-      # 截断长的Description以便显示
-      Description = str_wrap(Description, width = 34),
+      # 保持GO term标签单行显示
+      Description = Description,
       # 计算富集比例
       GeneRatio_numeric = sapply(GeneRatio, function(x) {
         nums <- as.numeric(unlist(strsplit(x, "/")))
@@ -95,24 +95,25 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
     geom_point(aes(size = Count, color = neg_log10_padj), alpha = 0.7) +
     scale_size_continuous(range = c(3, 12), name = "Gene Count") +
     scale_color_gradient(low = "blue", high = "red", name = "-log10(p.adjust)") +
+    scale_x_continuous(expand = expansion(mult = c(0.03, 0.08))) +
     scale_y_discrete(labels = label_map) +
-    facet_grid(. ~ Ontology, scales = "free_y", space = "free_y") +
+    facet_grid(. ~ Ontology, scales = "free_y", space = "fixed") +
     labs(
       x = "Gene Ratio",
-      y = paste0("Top ", top_n_terms, " GO Terms Per Ontology")
+      y = NULL
     ) +
     theme_bw() +
     theme(
-      axis.text.y = element_text(size = 13, face = "bold", lineheight = 1.08, margin = margin(r = 12)),
+      axis.text.y = element_text(size = 12, face = "bold", margin = margin(r = 10)),
       axis.text.x = element_text(size = 14, angle = 30, hjust = 1, vjust = 1, face = "bold", margin = margin(t = 10)),
       axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 12)),
-      axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 14)),
+      axis.title.y = element_blank(),
       strip.text = element_text(size = 16, face = "bold"),
-      panel.spacing.x = unit(2, "lines"),
+      panel.spacing.x = unit(1, "lines"),
       legend.position = "right",
       legend.title = element_text(size = 14, face = "bold"),
       legend.text = element_text(size = 13, face = "bold"),
-      plot.margin = margin(t = 18, r = 24, b = 22, l = 28)
+      plot.margin = margin(t = 18, r = 24, b = 22, l = 40)
     ) +
     guides(
       size = guide_legend(override.aes = list(alpha = 1), title = "Gene Count"),
@@ -120,7 +121,7 @@ create_combined_bubble_plot <- function(enrich_results, output_prefix) {
     )
   
   output_file <- paste0(gsub("\\.txt$", "", output_prefix), ".GO.bubble_plot.pdf")
-  ggsave(output_file, plot = p, width = 22, height = 11, dpi = 1200)
+  ggsave(output_file, plot = p, width = 18, height = 11, dpi = 1200)
   
   cat(paste("GO合并气泡图已保存:", output_file, "\n"))
 }
@@ -137,32 +138,37 @@ perform_enrichment(genes_negative, 'total/total.gene_id_negative')
 genes_negative_module <- read.delim('total/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
 perform_enrichment(genes_negative_module, 'total/total.gene_id_negative_TF')
 
-# 10C
-genes <- read.delim('10C/10C.greenyellow_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, '10C/10C.gene_id')
-genes_module <- read.delim('10C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-perform_enrichment(genes_module, '10C/10C.gene_id_TF')
-genes_negative <- read.delim('10C/10C.negative_green_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes_negative, '10C/10C.gene_id_negative')
-genes_negative_module <- read.delim('10C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-perform_enrichment(genes_negative_module, '10C/10C.gene_id_negative_TF')
+# # 10C
+# genes <- read.delim('10C/10C.greenyellow_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes, '10C/10C.gene_id')
+# genes_module <- read.delim('10C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_module, '10C/10C.gene_id_TF')
+# genes_negative <- read.delim('10C/10C.negative_green_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes_negative, '10C/10C.gene_id_negative')
+# genes_negative_module <- read.delim('10C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_negative_module, '10C/10C.gene_id_negative_TF')
 
-# 16C
-genes <- read.delim('16C/16C.pink_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, '16C/16C.gene_id')
-genes_module <- read.delim('16C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-perform_enrichment(genes_module, '16C/16C.gene_id_TF')
-genes_negative <- read.delim('16C/16C.negative_salmon_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes_negative, '16C/16C.gene_id_negative')
-# genes_negative_module <- read.delim('16C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-# perform_enrichment(genes_negative_module, '16C/16C.gene_id_negative_TF')
+# # 16C
+# genes <- read.delim('16C/16C.pink_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes, '16C/16C.gene_id')
+# genes_module <- read.delim('16C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_module, '16C/16C.gene_id_TF')
+# genes_negative <- read.delim('16C/16C.negative_salmon_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes_negative, '16C/16C.gene_id_negative')
+# # genes_negative_module <- read.delim('16C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# # perform_enrichment(genes_negative_module, '16C/16C.gene_id_negative_TF')
 
-# 22C
-genes <- read.delim('22C/22C.red_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes, '22C/22C.gene_id')
-genes_module <- read.delim('22C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-perform_enrichment(genes_module, '22C/22C.gene_id_TF')
-genes_negative <- read.delim('22C/22C.negative_magenta_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
-perform_enrichment(genes_negative, '22C/22C.gene_id_negative')
-genes_negative_module <- read.delim('22C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
-perform_enrichment(genes_negative_module, '22C/22C.gene_id_negative_TF')
+# # 22C
+# genes <- read.delim('22C/22C.red_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes, '22C/22C.gene_id')
+# genes_module <- read.delim('22C/TF_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_module, '22C/22C.gene_id_TF')
+# genes_negative <- read.delim('22C/22C.negative_magenta_module_genes.txt', header = TRUE, stringsAsFactors = FALSE)[[1]]
+# perform_enrichment(genes_negative, '22C/22C.gene_id_negative')
+# genes_negative_module <- read.delim('22C/TF_negative_in_module.txt', header = TRUE, stringsAsFactors = FALSE)[[2]]
+# perform_enrichment(genes_negative_module, '22C/22C.gene_id_negative_TF')
+
+# TFcoex
+# df <- read.csv("TF/TF.coxwork.csv", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+# genes <- df[[1]]
+# perform_enrichment(genes, 'TF/TF.gene_id')

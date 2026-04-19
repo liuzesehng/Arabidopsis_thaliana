@@ -115,7 +115,7 @@ cat("整体检验 overall P 值:", format.pval(overall_p, digits = 3), "\n")
 get_significance <- function(p) {
   ifelse(p < 0.001, "***",
          ifelse(p < 0.01, "**",
-                ifelse(p < 0.05, "*", "")))
+                ifelse(p < 0.05, "*", "n.s.")))
 }
 
 comparisons <- list(c("10", "16"), c("16", "22"), c("10", "22"))
@@ -128,19 +128,17 @@ pairwise_pvals <- tibble(
 write_tsv(pairwise_pvals, "temperature_a_per_tpm_boxplot_pairwise_pvalues.tsv")
 
 significance_labels <- get_significance(comparison_pvals)
-significant_indices <- which(significance_labels != "")
 
 # 创建箱线图（包含温度10、16、22）
-p <- ggplot(data, aes(x = Temperature, y = α.., fill = Temperature)) +
+p <- ggplot(data, aes(x = Temperature, y = α..)) +
   # 添加箱须末端标记（上下边缘）
   stat_boxplot(geom = "errorbar", width = 0.2, position = position_dodge(width = 0.5)) +
   # 标准的 geom_boxplot，它会画出箱体和简洁的箱须
-  geom_boxplot(alpha = 1, outlier.shape = 16, outlier.size = 1, 
+  geom_boxplot(fill = "#4472C4", color = "black", alpha = 1, outlier.shape = 16, outlier.size = 1, 
                position = position_dodge(width = 0.5), width = 0.5) +
-  scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
   labs(
     y = expression(alpha~"(%)"),
-    fill = "Tem(°C)"
+    x = expression(Temperature~"("*degree*C*")")
   ) +
   theme_minimal() +
   theme(
@@ -153,8 +151,8 @@ p <- ggplot(data, aes(x = Temperature, y = α.., fill = Temperature)) +
     # 图例设置
     legend.title = element_text(size = 28),
     legend.text = element_text(size = 26),
-    # 去除x轴标题
-    axis.title.x = element_blank(),
+    # 去除右侧颜色图例
+    legend.position = "none",
     # 显示完整的边框
     panel.border = element_rect(color = "black", fill = NA, size = 1.2),
     # 设置刻度线朝外
@@ -166,22 +164,19 @@ p <- ggplot(data, aes(x = Temperature, y = α.., fill = Temperature)) +
   ) +
   # 设置y轴范围
   scale_y_continuous(
-    limits = c(0, 100),
+    limits = c(10, 100),
     breaks = scales::pretty_breaks(n = 8)
   )
 
-if (length(significant_indices) > 0) {
-  sig_y_positions <- tail(c(70, 80, 90), length(significant_indices))
-  p <- p + geom_signif(
-    comparisons = comparisons[significant_indices],
-    annotations = significance_labels[significant_indices],
-    y_position = sig_y_positions,
-    tip_length = 0.02,
-    textsize = 9
-  )
-}
+p <- p + geom_signif(
+  comparisons = comparisons,
+  annotations = significance_labels,
+  y_position = c(70, 80, 90),
+  tip_length = 0.02,
+  textsize = 9
+)
 
-p <- p + coord_cartesian(ylim = c(0, 100), clip = "off")
+p <- p + coord_cartesian(ylim = c(10, 100), clip = "off")
 
 
 # 显示图形
@@ -289,19 +284,17 @@ significance_labels2 <- get_significance(comparison_pvals2)
 y_positions2 <- c(max(data$α, na.rm = TRUE) * 1.1,
                   max(data$α, na.rm = TRUE) * 1.2,
                   max(data$α, na.rm = TRUE) * 1.3)
-significant_indices2 <- which(significance_labels2 != "")
 
 # 创建箱线图（包含温度10、16、22）
-p <- ggplot(data, aes(x = Temperature, y = α, fill = Temperature)) +
+p <- ggplot(data, aes(x = Temperature, y = α)) +
   # 添加箱须末端标记（上下边缘）
   stat_boxplot(geom = "errorbar", width = 0.2, position = position_dodge(width = 0.5)) +
   # 标准的 geom_boxplot，它会画出箱体和简洁的箱须
-  geom_boxplot(alpha = 0.8, outlier.shape = 16, outlier.size = 1, 
+  geom_boxplot(fill = "#4472C4", color = "black", alpha = 1, outlier.shape = 16, outlier.size = 1, 
                position = position_dodge(width = 0.5), width = 0.5) +
-  scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
   labs(
     y = expression(alpha~"(ln(TPM+1))"),
-    fill = "Tem(°C)"
+    x = expression(Temperature~"("*degree*C*")")
   ) +
   theme_minimal() +
   theme(
@@ -314,8 +307,8 @@ p <- ggplot(data, aes(x = Temperature, y = α, fill = Temperature)) +
     # 图例设置
     legend.title = element_text(size = 28),
     legend.text = element_text(size = 26),
-    # 去除x轴标题
-    axis.title.x = element_blank(),
+    # 去除右侧颜色图例
+    legend.position = "none",
     # 显示完整的边框
     panel.border = element_rect(color = "black", fill = NA, size = 1.2),
     # 设置刻度线朝外
@@ -327,19 +320,17 @@ p <- ggplot(data, aes(x = Temperature, y = α, fill = Temperature)) +
   ) +
   # 设置y轴范围
   scale_y_continuous(
-    limits = c(0, max(data$α, na.rm = TRUE) * 1.4),
+    limits = c(2, max(data$α, na.rm = TRUE) * 1.4),
     breaks = scales::pretty_breaks(n = 8)
   )
 
-if (length(significant_indices2) > 0) {
-  p <- p + geom_signif(
-    comparisons = comparisons2[significant_indices2],
-    annotations = significance_labels2[significant_indices2],
-    y_position = y_positions2[significant_indices2],
-    tip_length = 0.02,
-    textsize = 9
-  )
-}
+p <- p + geom_signif(
+  comparisons = comparisons2,
+  annotations = significance_labels2,
+  y_position = y_positions2,
+  tip_length = 0.02,
+  textsize = 9
+)
 
 
 # 显示图形

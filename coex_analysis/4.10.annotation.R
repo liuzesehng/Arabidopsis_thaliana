@@ -225,7 +225,8 @@ tf_files <- list(
   "22C" = file.path("22C", "gene.TF_ids.txt"),
   "total" = file.path("total", "gene.TF_ids.txt"),
   "total.negative" = file.path("total", "gene.TF_negative_ids.txt"),
-  "total.other" = file.path("total", "gene.TF_other_ids.txt")
+  "total.other" = file.path("total", "gene.TF_other_ids.txt"),
+  "total.motif" = file.path("total", "total.motif.txt")
 )
 
 for (name in names(tf_files)) {

@@ -1,0 +1,41 @@
+=== A_per_TPM 优化结果 (Group 22) ===
+
+最优参数:
+  n_estimators: 194
+  learning_rate: 0.009316972135903096
+  max_depth: 3
+  min_child_weight: 10
+  subsample: 0.5337307977951384
+  colsample_bytree: 0.7106012277044227
+  reg_alpha: 0.12490197791869145
+  reg_lambda: 9.856509329730763e-05
+
+最优交叉验证 R² 分数: 0.056470
+
+==================================================
+
+测试集预测结果:
+  均方误差 (MSE): 24.595421
+  均方根误差 (RMSE): 4.959377
+  平均绝对误差 (MAE): 2.805537
+  拟合优度 (R-squared): 0.058086
+
+SHAP阈值特征分析:
+  说明: 基于测试集 SHAP，阈值 = 0.1
+  mean(|SHAP|) > 0.1 的特征数量: 2
+  特征列表: Temp Seasonality, Temp Annual Range
+  特征及其平均|SHAP|值:
+    Temp Seasonality: 0.320113
+    Temp Annual Range: 0.153669
+
+SHAP特征重要性分析:
+  前10个最重要特征: Temp Seasonality, Temp Annual Range, Precip Seasonality, Altitude, Longitude, Precip Wettest Month, Mean Temp Wettest Q, Mean Temp Driest Q, Isothermality, Precip Coldest Q
+  第一个最重要特征: Temp Seasonality
+  第一个特征的平均|SHAP|值: 0.320113
+  所有特征的平均|SHAP|值总和: 1.351735
+  第一个特征贡献度百分比: 23.68%
+
+  累计贡献度达到80%的特征:
+    特征数量: 12
+    累计贡献度: 80.79%
+    特征列表: Temp Seasonality, Temp Annual Range, Precip Seasonality, Altitude, Longitude, Precip Wettest Month, Mean Temp Wettest Q, Mean Temp Driest Q, Isothermality, Precip Coldest Q, Mean Diurnal Range, Latitude

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb
 from matplotlib.lines import Line2D
 from matplotlib.patches import ConnectionPatch, FancyArrowPatch, Rectangle
 import pandas as pd
@@ -23,12 +24,12 @@ DEFAULT_GFF = (
     / "GCF_000001735.4_TAIR10.1_genomic.gff"
 )
 DEFAULT_TF_POSITIVE = PROJECT_ROOT / "list/coex2/total/gene.TF_ids.txt"
-DEFAULT_TF_NEGATIVE = PROJECT_ROOT / "list/coex2/total/gene.TF_negative_ids.txt"
+DEFAULT_TF_NEGATIVE = PROJECT_ROOT / "list/coex2/all.fimo.out.filt"
 DEFAULT_POSITIVE_ANNOT = PROJECT_ROOT / "list/coex2/total/total.gene.TF_ids.annotated.txt"
-DEFAULT_NEGATIVE_ANNOT = PROJECT_ROOT / "list/coex2/total/total.negative.gene.TF_ids.annotated.txt"
+DEFAULT_NEGATIVE_ANNOT = PROJECT_ROOT / "list/coex2/total/total.motif.gene.TF_ids.annotated.txt"
 DEFAULT_IMPORT_DIR = PROJECT_ROOT / "list/xgboot/TPM_4.5_all"
 DEFAULT_FEATURE_DIR = DEFAULT_IMPORT_DIR / "feature_data_extraction"
-DEFAULT_PREFIXES = ["A_TPM", "A_per_TPM", "B_TPM", "B_per_TPM", "total_TPM"]
+DEFAULT_PREFIXES = ["total_TPM"]
 DEFAULT_GENE_ID = "AT2G39730"
 DEFAULT_GENE_WINDOW_BP = 2000
 DEFAULT_FLANK_BP = 50
@@ -207,12 +208,118 @@ def parse_import_results(path: Path) -> pd.DataFrame:
 
             feature = match.group(1)
             shap_value = float(match.group(2))
-            context = feature.split("_", 1)[0].upper()
-            if context not in CONTEXT_COLORS or shap_value <= 0:
+            if shap_value <= 0:
                 continue
+            context = feature.split("_", 1)[0].upper()
             rows.append({"feature": feature, "context": context, "shap_value": shap_value})
 
-    return pd.DataFrame(rows).drop_duplicates(subset=["feature"], keep="first")
+    result = pd.DataFrame(rows).drop_duplicates(subset=["feature"], keep="first")
+    if result.empty:
+        return result
+    result = result.sort_values(["shap_value", "context", "feature"], ascending=[False, True, True])
+    top_n = max(1, math.ceil(len(result) * 0.10))
+    top5_n = max(1, math.ceil(len(result) * 0.05))
+    top_features = set(result.head(top_n)["feature"].astype(str))
+    top5_features = set(result.head(top5_n)["feature"].astype(str))
+    result = result[result["feature"].astype(str).isin(top_features) & result["context"].isin(CONTEXT_COLORS)].copy()
+    result["is_top10_percent"] = result["feature"].astype(str).isin(top_features)
+    result["is_top5_percent"] = result["feature"].astype(str).isin(top5_features)
+    return result.reset_index(drop=True)
+
+
+def read_motif_table(path: Path) -> pd.DataFrame:
+    expected_columns = [
+        "motif_id",
+        "motif_alt_id",
+        "sequence_name",
+        "start",
+        "stop",
+        "strand",
+        "score",
+        "p-value",
+        "q-value",
+        "matched_sequence",
+    ]
+    with path.open("r", encoding="utf-8") as handle:
+        first_line = handle.readline().strip()
+    if first_line.startswith("motif_id\t"):
+        return pd.read_csv(path, sep="\t")
+    return pd.read_csv(path, sep="\t", names=expected_columns)
+
+
+def build_symbol_map(*annot_paths: Path) -> dict[str, str]:
+    symbol_map: dict[str, str] = {}
+    for annot_path in annot_paths:
+        if not annot_path.exists():
+            continue
+        annot_df = pd.read_csv(annot_path, sep="\t")
+        if "Gene_ID" not in annot_df.columns or "Symbol" not in annot_df.columns:
+            continue
+        for gene_id, symbol in zip(annot_df["Gene_ID"].astype(str), annot_df["Symbol"].fillna("").astype(str)):
+            if gene_id not in symbol_map and symbol.strip():
+                symbol_map[gene_id] = symbol
+    return symbol_map
+
+
+def motif_occurrence_key(df: pd.DataFrame) -> pd.Series:
+    return (
+        df["motif_id"].astype(str)
+        + "|"
+        + df["motif_alt_id"].astype(str)
+        + "|"
+        + df["sequence_name"].astype(str)
+        + "|"
+        + df["start"].astype(str)
+        + "|"
+        + df["stop"].astype(str)
+        + "|"
+        + df["strand"].astype(str)
+        + "|"
+        + df["matched_sequence"].astype(str).str.upper()
+    )
+
+
+def merge_adjacent_same_motifs(motif_df: pd.DataFrame) -> pd.DataFrame:
+    if motif_df.empty:
+        return motif_df.copy()
+    sort_cols = ["motif_id", "sequence_name", "start", "stop", "strand"]
+    ordered = motif_df.sort_values(sort_cols).reset_index(drop=True)
+    merged_rows: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+
+    for row in ordered.to_dict("records"):
+        row["matched_sequence"] = str(row["matched_sequence"]).upper()
+        row["start"] = int(row["start"])
+        row["stop"] = int(row["stop"])
+        row["score"] = float(row["score"])
+        row["p-value"] = float(row["p-value"])
+        row["q-value"] = float(row["q-value"])
+        if current is None:
+            current = dict(row)
+            continue
+
+        same_group = (
+            row["motif_id"] == current["motif_id"]
+            and row["sequence_name"] == current["sequence_name"]
+            and row["start"] <= int(current["stop"]) + 5
+        )
+        if same_group:
+            current["start"] = min(int(current["start"]), row["start"])
+            current["stop"] = max(int(current["stop"]), row["stop"])
+            if row["score"] > float(current["score"]):
+                current["score"] = row["score"]
+            current["p-value"] = min(float(current["p-value"]), row["p-value"])
+            current["q-value"] = min(float(current["q-value"]), row["q-value"])
+            current["strand"] = current["strand"] if row["strand"] == current["strand"] else "."
+            if len(row["matched_sequence"]) > len(str(current["matched_sequence"])):
+                current["matched_sequence"] = row["matched_sequence"]
+        else:
+            merged_rows.append(current)
+            current = dict(row)
+
+    if current is not None:
+        merged_rows.append(current)
+    return pd.DataFrame(merged_rows)
 
 
 def load_feature_positions(prefix: str, feature_dir: Path) -> pd.DataFrame:
@@ -237,10 +344,8 @@ def load_feature_positions(prefix: str, feature_dir: Path) -> pd.DataFrame:
     return feature_df.dropna(subset=["plot_start", "plot_end", "position"]).reset_index(drop=True)
 
 
-def load_motif_hits(path: Path, annotated_path: Path, set_type: str) -> pd.DataFrame:
-    motif_df = pd.read_csv(path, sep="\t")
-    annot_df = pd.read_csv(annotated_path, sep="\t")
-    symbol_map = dict(zip(annot_df["Gene_ID"].astype(str), annot_df["Symbol"].fillna("").astype(str)))
+def load_motif_hits(path: Path, symbol_map: dict[str, str], set_type: str) -> pd.DataFrame:
+    motif_df = read_motif_table(path)
 
     motif_df = motif_df.copy()
     motif_df["chrom"] = motif_df["sequence_name"].map(normalize_chromosome)
@@ -262,9 +367,46 @@ def load_motif_hits(path: Path, annotated_path: Path, set_type: str) -> pd.DataF
 def load_rca_motifs(args: argparse.Namespace, gene_model: GeneModel) -> pd.DataFrame:
     window_start = gene_model.start - args.gene_window_bp
     window_end = gene_model.end + args.gene_window_bp
-    positive_df = load_motif_hits(args.tf_positive, args.positive_annot, "positive")
-    negative_df = load_motif_hits(args.tf_negative, args.negative_annot, "negative")
+
+    symbol_map = build_symbol_map(args.positive_annot, args.negative_annot)
+
+    positive_raw = read_motif_table(args.tf_positive)
+    positive_df = load_motif_hits(args.tf_positive, symbol_map, "positive")
+
+    negative_raw = read_motif_table(args.tf_negative)
+    negative_raw = negative_raw.copy()
+    positive_keys = set(motif_occurrence_key(positive_raw))
+    negative_raw = negative_raw.loc[~motif_occurrence_key(negative_raw).isin(positive_keys)].copy()
+    negative_raw = merge_adjacent_same_motifs(negative_raw)
+    negative_tmp_path = args.workdir / "_merged_negative_tmp.tsv"
+    negative_raw.to_csv(negative_tmp_path, sep="\t", index=False)
+    negative_df = load_motif_hits(negative_tmp_path, symbol_map, "negative")
+    if negative_tmp_path.exists():
+        negative_tmp_path.unlink()
+
     motif_df = pd.concat([positive_df, negative_df], ignore_index=True)
+    motif_df = motif_df[
+        (motif_df["chrom"] == gene_model.chrom)
+        & (motif_df["motif_end"] >= window_start)
+        & (motif_df["motif_start"] <= window_end)
+    ].copy()
+    motif_df["motif_start"] = motif_df["motif_start"].astype(int)
+    motif_df["motif_end"] = motif_df["motif_end"].astype(int)
+    motif_df = motif_df.sort_values(["motif_center", "motif_id"]).reset_index(drop=True)
+    return motif_df
+
+
+def load_all_fimo_motifs(args: argparse.Namespace, gene_model: GeneModel) -> pd.DataFrame:
+    window_start = gene_model.start - args.gene_window_bp
+    window_end = gene_model.end + args.gene_window_bp
+    symbol_map = build_symbol_map(args.positive_annot, args.negative_annot)
+    all_fimo_raw = read_motif_table(args.tf_negative).copy()
+    all_fimo_raw = merge_adjacent_same_motifs(all_fimo_raw)
+    all_fimo_tmp_path = args.workdir / "_all_fimo_merged_tmp.tsv"
+    all_fimo_raw.to_csv(all_fimo_tmp_path, sep="\t", index=False)
+    motif_df = load_motif_hits(all_fimo_tmp_path, symbol_map, "all_fimo")
+    if all_fimo_tmp_path.exists():
+        all_fimo_tmp_path.unlink()
     motif_df = motif_df[
         (motif_df["chrom"] == gene_model.chrom)
         & (motif_df["motif_end"] >= window_start)
@@ -313,6 +455,8 @@ def build_motif_feature_matches(
                     "context": pd.NA,
                     "feature_pos": pd.NA,
                     "shap_value": pd.NA,
+                    "is_top10_percent": pd.NA,
+                    "is_top5_percent": pd.NA,
                     "in_window": False,
                     "in_motif": False,
                 }
@@ -338,6 +482,8 @@ def build_motif_feature_matches(
                     "context": row.context,
                     "feature_pos": position,
                     "shap_value": float(row.shap_value),
+                    "is_top10_percent": bool(row.is_top10_percent),
+                    "is_top5_percent": bool(row.is_top5_percent),
                     "in_window": True,
                     "in_motif": int(motif.motif_start) <= position <= int(motif.motif_end),
                 }
@@ -486,6 +632,12 @@ def add_elbow_connector(
     )
 
 
+def mix_with_white(base_color: str, strength: float) -> tuple[float, float, float]:
+    base_rgb = to_rgb(base_color)
+    strength = max(0.22, min(1.0, strength))
+    return tuple(1.0 - (1.0 - channel) * strength for channel in base_rgb)
+
+
 def compute_display_positions(motif_row: pd.Series, valid_points: pd.DataFrame) -> dict[float, float]:
     motif_start = int(motif_row["motif_start"])
     motif_end = int(motif_row["motif_end"])
@@ -574,8 +726,7 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
         for row in valid_points.sort_values(["feature_pos", "context", "methylation_feature"]).itertuples(index=False):
             xpos = display_map[float(row.feature_pos)]
             context = str(row.context)
-            color = CONTEXT_COLORS[context]
-            alpha = 0.95 if bool(row.in_motif) else 0.32
+            color = mix_with_white(CONTEXT_COLORS[context], 1.0 if bool(row.is_top5_percent) else 0.34)
             size = 220 if bool(row.in_motif) else 170
             ax.scatter(
                 [xpos],
@@ -583,7 +734,7 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
                 marker="*",
                 s=size,
                 color=color,
-                alpha=alpha,
+                alpha=1.0,
                 edgecolors="none",
                 zorder=4,
             )
@@ -730,6 +881,7 @@ def plot_gene_overview(
 ) -> None:
     if motif_df.empty:
         return
+    output_dir.mkdir(parents=True, exist_ok=True)
     left_extra_pad = 400
     right_extra_pad = 400
     window_start = gene_model.start - gene_window_bp - left_extra_pad
@@ -769,6 +921,7 @@ def plot_single_motif_figure(
     output_dir: Path,
     flank_bp: int,
 ) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
     fig = plt.figure(figsize=(12, 3.8))
     ax = fig.add_axes([0.06, 0.18, 0.88, 0.70])
     draw_motif_inset(ax, motif_row, match_df, flank_bp)
@@ -776,6 +929,18 @@ def plot_single_motif_figure(
     fig.savefig(output_dir / f"{prefix}_{set_type}_{stem}_motif.png", dpi=300, bbox_inches="tight")
     fig.savefig(output_dir / f"{prefix}_{set_type}_{stem}_motif.pdf", bbox_inches="tight")
     plt.close(fig)
+
+
+def motif_has_methylation(motif_row: pd.Series, match_df: pd.DataFrame) -> bool:
+    subset = match_df[
+        (match_df["motif_id"] == motif_row["motif_id"])
+        & (match_df["motif_start"] == motif_row["motif_start"])
+        & (match_df["motif_end"] == motif_row["motif_end"])
+        & (match_df["set_type"] == motif_row["set_type"])
+        & (match_df["in_window"] == True)
+        & (match_df["context"].notna())
+    ]
+    return not subset.empty
 
 
 def main() -> None:
@@ -797,14 +962,30 @@ def main() -> None:
 
     gene_model = load_gene_model(args.gff, args.gene_id)
     motif_df = load_rca_motifs(args, gene_model)
+    all_fimo_motif_df = load_all_fimo_motifs(args, gene_model)
     if motif_df.empty:
         raise ValueError(f"No motifs from TF lists overlap {gene_model.gene_id} within ±{args.gene_window_bp} bp")
+
+    all_fimo_hits_across_models: list[pd.DataFrame] = []
+    shap_top10_percent_stats: list[dict[str, object]] = []
 
     for prefix in args.prefixes:
         import_result_path = args.import_dir / f"{prefix}_import_results.txt"
         ensure_paths_exist([import_result_path])
 
         shap_df = parse_import_results(import_result_path)
+        top10_df = shap_df[shap_df["is_top10_percent"] == True].copy()
+        for context in ["CHH", "CHG", "CG"]:
+            context_df = top10_df[top10_df["context"] == context].copy()
+            shap_top10_percent_stats.append(
+                {
+                    "model": prefix,
+                    "context": context,
+                    "top10_percent_feature_count": len(top10_df),
+                    "context_feature_count": len(context_df),
+                    "features": ",".join(context_df["feature"].astype(str).tolist()),
+                }
+            )
         feature_df = load_feature_positions(prefix, args.feature_dir)
         detail_df = build_motif_feature_matches(
             motif_df=motif_df,
@@ -813,6 +994,14 @@ def main() -> None:
             flank_bp=args.flank_bp,
             dataset=prefix,
         )
+        all_fimo_detail_df = build_motif_feature_matches(
+            motif_df=all_fimo_motif_df,
+            feature_df=feature_df,
+            shap_df=shap_df,
+            flank_bp=args.flank_bp,
+            dataset=prefix,
+        )
+        all_fimo_hits_across_models.append(all_fimo_detail_df)
         detail_df.to_csv(output_root / f"{prefix}_AT2G39730_motif_gene_matches.tsv", sep="\t", index=False)
         for set_type in ["positive", "negative"]:
             set_motif_df = motif_df[motif_df["set_type"] == set_type].copy()
@@ -830,9 +1019,15 @@ def main() -> None:
                 output_dir=output_root,
                 gene_window_bp=args.gene_window_bp,
             )
+            for suffix in ("png", "pdf"):
+                for old_file in output_root.glob(f"{prefix}_{set_type}_*_motif.{suffix}"):
+                    old_file.unlink()
             for motif in set_motif_df.sort_values(["motif_center", "symbol", "motif_id"]).itertuples(index=False):
+                motif_row = pd.Series(motif._asdict())
+                if not motif_has_methylation(motif_row, set_detail_df):
+                    continue
                 plot_single_motif_figure(
-                    motif_row=pd.Series(motif._asdict()),
+                    motif_row=motif_row,
                     match_df=set_detail_df,
                     prefix=prefix,
                     set_type=set_type,
@@ -840,6 +1035,50 @@ def main() -> None:
                     flank_bp=args.flank_bp,
                 )
         print(f"[done] {prefix}: outputs written to {output_root}")
+
+    pd.DataFrame(shap_top10_percent_stats).to_csv(
+        output_root / "shap_top10_percent_CHH_CHG_CG_counts.tsv",
+        sep="\t",
+        index=False,
+    )
+
+    if all_fimo_hits_across_models:
+        all_fimo_union_df = pd.concat(all_fimo_hits_across_models, ignore_index=True)
+        all_fimo_union_df = all_fimo_union_df[
+            (all_fimo_union_df["in_window"] == True) & (all_fimo_union_df["context"].notna())
+        ].copy()
+        if not all_fimo_union_df.empty:
+            grouped = (
+                all_fimo_union_df.groupby(
+                    ["motif_id", "symbol", "chrom", "motif_start", "motif_end", "strand", "matched_sequence"],
+                    dropna=False,
+                )
+                .agg(
+                    models=("dataset", lambda s: ",".join(sorted(set(map(str, s))))),
+                    model_count=("dataset", lambda s: len(set(map(str, s)))),
+                    methylation_site_count=("methylation_feature", lambda s: len(set(map(str, s)))),
+                    contexts=("context", lambda s: ",".join(sorted(set(map(str, s))))),
+                )
+                .reset_index()
+                .sort_values(["motif_start", "motif_end", "motif_id"])
+            )
+        else:
+            grouped = pd.DataFrame(
+                columns=[
+                    "motif_id",
+                    "symbol",
+                    "chrom",
+                    "motif_start",
+                    "motif_end",
+                    "strand",
+                    "matched_sequence",
+                    "models",
+                    "model_count",
+                    "methylation_site_count",
+                    "contexts",
+                ]
+            )
+        grouped.to_csv(output_root / "all_fimo_any_model_methylated_motifs.tsv", sep="\t", index=False)
 
 
 if __name__ == "__main__":

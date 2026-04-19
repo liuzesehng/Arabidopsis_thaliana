@@ -98,7 +98,7 @@ cat("整体检验 overall P 值:", format.pval(overall_p, digits = 3), "\n")
 get_significance <- function(p) {
   ifelse(p < 0.001, "***",
          ifelse(p < 0.01, "**",
-                ifelse(p < 0.05, "*", "")))
+                ifelse(p < 0.05, "*", "n.s.")))
 }
 
 comparisons <- list(c("10", "16"), c("16", "22"), c("10", "22"))
@@ -114,17 +114,15 @@ significance_labels <- get_significance(comparison_pvals)
 y_positions <- c(max(data$total, na.rm = TRUE) * 1.1,
                  max(data$total, na.rm = TRUE) * 1.2,
                  max(data$total, na.rm = TRUE) * 1.3)
-significant_indices <- which(significance_labels != "")
 
 # 创建箱线图（包含温度10、16、22）
-p <- ggplot(data, aes(x = Temperature, y = total, fill = Temperature)) +
+p <- ggplot(data, aes(x = Temperature, y = total)) +
   stat_boxplot(geom = "errorbar", width = 0.2, position = position_dodge(width = 0.5)) +
-  geom_boxplot(alpha = 1, outlier.shape = 16, outlier.size = 1, 
+  geom_boxplot(fill = "#4472C4", color = "black", alpha = 1, outlier.shape = 16, outlier.size = 1, 
                position = position_dodge(width = 0.5), width = 0.5) +
-  scale_fill_manual(values = c("10" = "#4472C4", "16" = "#70AD47", "22" = "#FFC000")) +
   labs(
     y = expression("total"~"(ln(TPM+1))"),
-    fill = "Tem(°C)"
+    x = expression(Temperature~"("*degree*C*")")
   ) +
   theme_minimal() +
   theme(
@@ -137,8 +135,8 @@ p <- ggplot(data, aes(x = Temperature, y = total, fill = Temperature)) +
     # 图例设置
     legend.title = element_text(size = 28),
     legend.text = element_text(size = 26),
-    # 去除x轴标题
-    axis.title.x = element_blank(),
+    # 去除右侧颜色图例
+    legend.position = "none",
     # 显示完整的边框
     panel.border = element_rect(color = "black", fill = NA, size = 1.2),
     # 设置刻度线朝外
@@ -150,19 +148,17 @@ p <- ggplot(data, aes(x = Temperature, y = total, fill = Temperature)) +
   ) +
   # 设置y轴范围
   scale_y_continuous(
-    limits = c(0, max(data$total, na.rm = TRUE) * 1.4),
+    limits = c(5, max(data$total, na.rm = TRUE) * 1.4),
     breaks = scales::pretty_breaks(n = 8)
   )
 
-if (length(significant_indices) > 0) {
-  p <- p + geom_signif(
-    comparisons = comparisons[significant_indices],
-    annotations = significance_labels[significant_indices],
-    y_position = y_positions[significant_indices],
-    tip_length = 0.02,
-    textsize = 9
-  )
-}
+p <- p + geom_signif(
+  comparisons = comparisons,
+  annotations = significance_labels,
+  y_position = y_positions,
+  tip_length = 0.02,
+  textsize = 9
+)
 
 
 # 显示图形

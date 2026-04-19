@@ -112,7 +112,7 @@ table(net$colors)
 moduleLabels = net$colors
 moduleColors = labels2colors(moduleLabels)
 # 打开 PDF 设备 
-pdf("total/module_dendrogram.pdf", height = 15, width = 15) 
+pdf("total/module_dendrogram.pdf", height = 9, width = 16) 
 # 绘制图形 
 plotDendroAndColors(net$dendrograms[[1]], moduleColors[net$blockGenes[[1]]], 
                     "Module colors", 

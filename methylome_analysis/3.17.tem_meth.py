@@ -20,6 +20,7 @@ from statsmodels.stats.multitest import multipletests
 
 PROJECT_MARKER = "Arabidopsis_thaliana"
 INPUT_TSV_NAME = "Alt.all.snp_meth.filtered.tsv"
+WEIGHTED_INPUT_TSV_NAME = "Alt.weighted.snp_meth.tsv"
 IMPORT_RESULTS_DIRNAME = "TPM_4.5_all"
 OUTPUT_SUBDIR = "temperature_meth_plots"
 TEMPERATURE_COLUMN = "Temperature"
@@ -27,6 +28,15 @@ TEMPERATURE_ORDER = [22, 16, 10]
 TEMPERATURE_LABELS = {22: "22°C", 16: "16°C", 10: "10°C"}
 TEMPERATURE_COLORS = {22: "#d1495b", 16: "#edae49", 10: "#00798c"}
 FEATURE_TYPE_ORDER = ["CHH", "CHG", "CG"]
+DATASET_EXPRESSION_COLUMNS = {
+    "A_per_TPM": "α/%",
+    "A_TPM": "α",
+    "B_per_TPM": "β/%",
+    "B_TPM": "β",
+    "total_TPM": "total",
+}
+LOG1P_TARGET_COLUMNS = {"total", "α", "β"}
+WEIGHTED_ALIGNMENT_COLUMNS = ["Temperature", "total", "α", "β", "β1", "β2", "α/%", "β/%", "β1/%", "β2/%"]
 PAIRWISE_TEMPERATURES = [(22, 16), (22, 10), (16, 10)]
 FEATURE_PATTERN = re.compile(r"^\s*((?:CHH|CHG|CG|snp)_[^:]+):\s*([-+0-9.eE]+)\s*$")
 DATASET_CONFIGS = [
@@ -86,21 +96,24 @@ def candidate_paths(*paths: Path) -> Iterable[Path]:
             yield path
 
 
-def resolve_paths() -> tuple[Path, Path, Path]:
+def resolve_paths() -> tuple[Path, Path, Path, Path]:
     project_root = resolve_project_root()
     local_tsv = project_root / "list" / "RCA" / INPUT_TSV_NAME
+    local_weighted_tsv = project_root / "list" / "RCA" / WEIGHTED_INPUT_TSV_NAME
     local_import_dir = project_root / "list" / "xgboot" / IMPORT_RESULTS_DIRNAME
     external_tsv = Path("/datapool/life-gongl/zesheng/Arabidopsis_thaliana/list/RCA") / INPUT_TSV_NAME
+    external_weighted_tsv = Path("/datapool/life-gongl/zesheng/Arabidopsis_thaliana/list/RCA") / WEIGHTED_INPUT_TSV_NAME
     external_import_dir = Path("/datapool/life-gongl/zesheng/Arabidopsis_thaliana/list/xgboot") / IMPORT_RESULTS_DIRNAME
 
     tsv_path = next(candidate_paths(external_tsv, local_tsv), None)
+    weighted_tsv_path = next(candidate_paths(external_weighted_tsv, local_weighted_tsv), None)
     import_dir = next(candidate_paths(external_import_dir, local_import_dir), None)
-    if tsv_path is None or import_dir is None:
-        raise FileNotFoundError("Failed to resolve the methylation table or import_results directory.")
+    if tsv_path is None or weighted_tsv_path is None or import_dir is None:
+        raise FileNotFoundError("Failed to resolve the methylation table, weighted methylation table, or import_results directory.")
 
     output_dir = project_root / "list" / "xgboot" / IMPORT_RESULTS_DIRNAME / OUTPUT_SUBDIR
     output_dir.mkdir(parents=True, exist_ok=True)
-    return tsv_path, import_dir, output_dir
+    return tsv_path, weighted_tsv_path, import_dir, output_dir
 
 
 def parse_import_results(result_path: Path) -> DatasetResult:
@@ -167,6 +180,21 @@ def load_main_table(tsv_path: Path) -> pd.DataFrame:
     return df
 
 
+def load_weighted_table(tsv_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(tsv_path, sep="\t", low_memory=False)
+    if TEMPERATURE_COLUMN not in df.columns:
+        raise KeyError(f"Column {TEMPERATURE_COLUMN!r} not found in {tsv_path}")
+
+    df[TEMPERATURE_COLUMN] = pd.to_numeric(df[TEMPERATURE_COLUMN], errors="coerce")
+    observed_temps = sorted(int(temp) for temp in df[TEMPERATURE_COLUMN].dropna().unique())
+    if observed_temps != sorted(TEMPERATURE_ORDER):
+        raise ValueError(f"Expected temperatures {sorted(TEMPERATURE_ORDER)}, observed {observed_temps}")
+
+    feature_columns = [col for col in df.columns if col != TEMPERATURE_COLUMN]
+    df[feature_columns] = df[feature_columns].apply(pd.to_numeric, errors="coerce")
+    return df
+
+
 def benjamini_hochberg(p_values: Sequence[float]) -> list[float]:
     if not p_values:
         return []
@@ -176,14 +204,14 @@ def benjamini_hochberg(p_values: Sequence[float]) -> list[float]:
 
 def significance_stars(p_value: float | None) -> str:
     if p_value is None or pd.isna(p_value):
-        return ""
+        return "n.s."
     if p_value < 0.001:
         return "***"
     if p_value < 0.01:
         return "**"
     if p_value < 0.05:
         return "*"
-    return ""
+    return "n.s."
 
 
 def draw_significance_bracket(
@@ -443,12 +471,12 @@ def summarize_feature_statistics(df: pd.DataFrame, features_by_type: Dict[str, L
     return stats_df[column_order]
 
 
-GROUP_ORDER = ["High", "Medium", "Low"]
+GROUP_ORDER = ["Low", "Medium", "High"]
 GROUP_TO_TEMP = {"High": 22, "Medium": 16, "Low": 10}
 TEMP_TO_GROUP = {value: key for key, value in GROUP_TO_TEMP.items()}
 GROUP_DISPLAY_LABELS = {"High": "22℃", "Medium": "16℃", "Low": "10℃"}
 GROUP_COLORS = {"High": "#d1495b", "Medium": "#edae49", "Low": "#00798c"}
-BOX_OFFSETS = {"High": -0.24, "Medium": 0.0, "Low": 0.24}
+BOX_OFFSETS = {"Low": -0.24, "Medium": 0.0, "High": 0.24}
 SCATTER_REFERENCE_RATIO = 6267 / 4913
 
 
@@ -459,32 +487,84 @@ def add_group_labels(df: pd.DataFrame) -> pd.DataFrame:
     return labeled
 
 
-def weighted_average(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    valid_mask = ~np.isnan(values)
+def align_weighted_inputs(value_df: pd.DataFrame, weighted_df: pd.DataFrame) -> pd.DataFrame:
+    merged = value_df.reset_index(names="value_index").merge(
+        weighted_df.reset_index(names="weighted_index"),
+        on=WEIGHTED_ALIGNMENT_COLUMNS,
+        how="left",
+        suffixes=("_value", "_weighted"),
+    )
+    if len(merged) != len(value_df):
+        raise ValueError("Weighted methylation table alignment produced duplicate or missing rows.")
+    if merged["weighted_index"].isna().any():
+        raise ValueError("Weighted methylation table alignment failed for some methylation rows.")
+    if (merged.groupby("value_index").size() > 1).any():
+        raise ValueError("Weighted methylation table alignment is ambiguous for some methylation rows.")
+    aligned_indices = merged.sort_values("value_index")["weighted_index"].astype(int).to_list()
+    return weighted_df.iloc[aligned_indices].reset_index(drop=True).copy()
+
+
+def prepare_dataset_frames(
+    value_df: pd.DataFrame,
+    weighted_df: pd.DataFrame,
+    dataset_name: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    expr_col = DATASET_EXPRESSION_COLUMNS[dataset_name]
+    expr_series = pd.to_numeric(value_df[expr_col], errors="coerce")
+    if expr_col in LOG1P_TARGET_COLUMNS:
+        eligible_mask = expr_series.notna() & (expr_series > 0)
+        transformed = np.log1p(expr_series.loc[eligible_mask])
+    else:
+        eligible_mask = expr_series.notna()
+        transformed = expr_series.loc[eligible_mask]
+
+    if transformed.empty:
+        raise ValueError(f"No eligible samples found for dataset {dataset_name} using {expr_col}")
+
+    q1 = float(transformed.quantile(1 / 3))
+    q3 = float(transformed.quantile(2 / 3))
+    selected_value_df = value_df.loc[eligible_mask].copy()
+    selected_weighted_df = weighted_df.loc[eligible_mask].copy()
+
+    def classify(value: float) -> str:
+        transformed_value = float(np.log1p(value)) if expr_col in LOG1P_TARGET_COLUMNS else float(value)
+        if transformed_value < q1:
+            return "Low"
+        if transformed_value > q3:
+            return "High"
+        return "Medium"
+
+    selected_value_df["Group"] = expr_series.loc[eligible_mask].map(classify)
+    selected_weighted_df["Group"] = selected_value_df["Group"].to_numpy()
+    return selected_value_df, selected_weighted_df
+
+
+def weighted_average(values: np.ndarray, coverages: np.ndarray) -> np.ndarray:
+    valid_mask = (~np.isnan(values)) & (~np.isnan(coverages)) & (coverages > 0)
     safe_values = np.where(valid_mask, values, 0.0)
-    weighted_sum = np.sum(safe_values * weights, axis=1)
-    weight_sum = np.sum(valid_mask * weights, axis=1)
+    safe_coverages = np.where(valid_mask, coverages, 0.0)
+    weighted_sum = np.sum(safe_values * safe_coverages, axis=1)
+    weight_sum = np.sum(safe_coverages, axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         result = weighted_sum / weight_sum
     result[weight_sum == 0] = np.nan
     return result
 
 
-def build_weighted_type_table(value_df: pd.DataFrame, dataset_result: DatasetResult) -> pd.DataFrame:
+def build_weighted_type_table(value_df: pd.DataFrame, coverage_df: pd.DataFrame, dataset_result: DatasetResult) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     for feature_type in FEATURE_TYPE_ORDER:
         features = dataset_result.features_by_type[feature_type]
         if not features:
             continue
         values = value_df[features].to_numpy(dtype=float)
-        weights = np.array([dataset_result.shap_values[feature] for feature in features], dtype=float)
-        weights = weights / weights.sum()
-        weighted_values = weighted_average(values, weights)
+        coverages = coverage_df[features].to_numpy(dtype=float)
+        weighted_values = weighted_average(values, coverages)
         feature_table = pd.DataFrame(
             {
                 "sample_index": value_df.index,
                 "temperature": value_df[TEMPERATURE_COLUMN],
-                "group": value_df[TEMPERATURE_COLUMN].map(TEMP_TO_GROUP),
+                "group": value_df["Group"],
                 "feature_type": feature_type,
                 "feature_value": weighted_values,
             }
@@ -528,7 +608,9 @@ def analyze_weighted_continuous(weighted_df: pd.DataFrame, feature_type: str) ->
                     "overall_p": float(overall_p),
                     "overall_bh_p": math.nan,
                     "pairwise_comparison": (
-                        label.replace("22", "22℃").replace("16", "16℃").replace("10", "10℃")
+                        label.replace("22", GROUP_DISPLAY_LABELS["High"])
+                        .replace("16", GROUP_DISPLAY_LABELS["Medium"])
+                        .replace("10", GROUP_DISPLAY_LABELS["Low"])
                     ),
                     "pairwise_test": "Dunn",
                     "raw_p": raw_p,
@@ -671,7 +753,7 @@ def build_weighted_boxplot_panel(
     y_ticks: Sequence[float],
 ) -> None:
     positions = np.arange(len(feature_types), dtype=float)
-    type_offsets = {"High": -0.24, "Medium": 0.0, "Low": 0.24}
+    type_offsets = BOX_OFFSETS
     bracket_layout = {
         ("High", "Medium"): {"level": 0, "text_shift": -0.03},
         ("Medium", "Low"): {"level": 1, "text_shift": 0.03},
@@ -707,10 +789,10 @@ def build_weighted_boxplot_panel(
         overall_row = feature_stats.loc[feature_stats["pairwise_comparison"] == ""]
         pairwise_map = {row["pairwise_comparison"]: row["significance"] for row in pairwise_rows.to_dict("records")}
 
-        local_ymax = 100.0
-        annotation_step = 7.0
-        bracket_height = 2.4
-        text_offset = 1.4
+        local_ymax = 45.0
+        annotation_step = 4.0
+        bracket_height = 1.4
+        text_offset = 0.8
 
         for first, second in [("High", "Medium"), ("Medium", "Low"), ("High", "Low")]:
             label = f"{GROUP_DISPLAY_LABELS[first]}_vs_{GROUP_DISPLAY_LABELS[second]}"
@@ -785,8 +867,8 @@ def plot_single_weighted_boxplot_figure(
         weighted_df,
         stats_df,
         [feature_type],
-        y_max=128,
-        y_ticks=np.arange(0, 101, 20),
+        y_max=60,
+        y_ticks=np.arange(0, 61, 10),
     )
     pdf_path = output_dir / f"{dataset_result.dataset_name}_{feature_type}_weighted_boxplot.pdf"
     png_path = output_dir / f"{dataset_result.dataset_name}_{feature_type}_weighted_boxplot.png"
@@ -817,36 +899,35 @@ def plot_weighted_boxplot_figure(
     return plot_paths, stats_path
 
 
-def validate_feature_columns(df: pd.DataFrame, dataset_results: Sequence[DatasetResult]) -> None:
-    available_columns = set(df.columns)
+def validate_feature_columns(value_df: pd.DataFrame, weighted_df: pd.DataFrame, dataset_results: Sequence[DatasetResult]) -> None:
+    available_value_columns = set(value_df.columns)
+    available_weighted_columns = set(weighted_df.columns)
     missing = []
     for dataset_result in dataset_results:
         for features in dataset_result.features_by_type.values():
             for feature in features:
-                if feature not in available_columns:
+                if feature not in available_value_columns or feature not in available_weighted_columns:
                     missing.append(feature)
     if missing:
         preview = ", ".join(sorted(set(missing))[:10])
-        raise KeyError(f"Missing features in methylation table: {preview}")
+        raise KeyError(f"Missing features in methylation or weighted methylation table: {preview}")
 
 
 def run_all() -> None:
     configure_matplotlib()
-    tsv_path, import_dir, output_dir = resolve_paths()
+    tsv_path, weighted_tsv_path, import_dir, output_dir = resolve_paths()
     main_df = load_main_table(tsv_path)
+    weighted_meth_df = load_weighted_table(weighted_tsv_path)
+    weighted_meth_df = align_weighted_inputs(main_df, weighted_meth_df)
 
     dataset_results = [parse_import_results(import_dir / filename) for filename, _dataset_name in DATASET_CONFIGS]
-    validate_feature_columns(main_df, dataset_results)
-    main_df = main_df.copy()
-    metric = pd.to_numeric(main_df[TEMPERATURE_COLUMN], errors="coerce")
-    low_cut = metric.quantile(0.10)
-    high_cut = metric.quantile(0.90)
-    main_df["Group"] = np.where(metric <= low_cut, "Low", np.where(metric >= high_cut, "High", "Medium"))
+    validate_feature_columns(main_df, weighted_meth_df, dataset_results)
 
     generated_outputs = []
     for dataset_result in dataset_results:
-        scatter_pdf, scatter_png = plot_feature_scatter_figure(main_df, dataset_result, output_dir)
-        weighted_df = build_weighted_type_table(main_df, dataset_result)
+        grouped_value_df, grouped_weighted_source_df = prepare_dataset_frames(main_df, weighted_meth_df, dataset_result.dataset_name)
+        scatter_pdf, scatter_png = plot_feature_scatter_figure(grouped_value_df, dataset_result, output_dir)
+        weighted_df = build_weighted_type_table(grouped_value_df, grouped_weighted_source_df, dataset_result)
         weighted_stats_df = summarize_weighted_type_statistics(weighted_df)
         box_plots, stats_path = plot_weighted_boxplot_figure(
             dataset_result,
@@ -857,6 +938,7 @@ def run_all() -> None:
         generated_outputs.append((scatter_pdf, scatter_png, box_plots, stats_path))
 
     print(f"Input table: {tsv_path}")
+    print(f"Weighted methylation table: {weighted_tsv_path}")
     print(f"Import-results directory: {import_dir}")
     print(f"Output directory: {output_dir}")
     for scatter_pdf, scatter_png, box_plots, stats_path in generated_outputs:
