@@ -38,6 +38,22 @@ BASE_COLORS = {"A": "#3182BD", "T": "#D95F0E", "C": "#31A354", "G": "#756BB1", "
 GENE_BODY_COLOR = "#587565"
 GENE_EXON_COLOR = "#496656"
 GENE_CDS_COLOR = "#395548"
+ORDERED_MADS_SYMBOLS = [
+    "AGL1",
+    "AGL2",
+    "AGL3",
+    "AGL6",
+    "AGL9",
+    "AGL13",
+    "AGL15",
+    "AGL16",
+    "AGL25",
+    "AGL63",
+    "AG",
+    "AP3",
+]
+COMBINED_MADS_SYMBOLS = set(ORDERED_MADS_SYMBOLS)
+COMBINED_MADS_LABEL = "AGL_AG_AP3_combined"
 ARABIDOPSIS_CHR_MAP = {
     "NC_003070": "Chr1",
     "NC_003071": "Chr2",
@@ -301,6 +317,7 @@ def merge_adjacent_same_motifs(motif_df: pd.DataFrame) -> pd.DataFrame:
         same_group = (
             row["motif_id"] == current["motif_id"]
             and row["sequence_name"] == current["sequence_name"]
+            and row["strand"] == current["strand"]
             and row["start"] <= int(current["stop"]) + 5
         )
         if same_group:
@@ -310,7 +327,6 @@ def merge_adjacent_same_motifs(motif_df: pd.DataFrame) -> pd.DataFrame:
                 current["score"] = row["score"]
             current["p-value"] = min(float(current["p-value"]), row["p-value"])
             current["q-value"] = min(float(current["q-value"]), row["q-value"])
-            current["strand"] = current["strand"] if row["strand"] == current["strand"] else "."
             if len(row["matched_sequence"]) > len(str(current["matched_sequence"])):
                 current["matched_sequence"] = row["matched_sequence"]
         else:
@@ -320,6 +336,119 @@ def merge_adjacent_same_motifs(motif_df: pd.DataFrame) -> pd.DataFrame:
     if current is not None:
         merged_rows.append(current)
     return pd.DataFrame(merged_rows)
+
+
+def reverse_complement(sequence: str) -> str:
+    table = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+    return sequence.translate(table)[::-1].upper()
+
+
+def reverse_sequence(sequence: str) -> str:
+    return str(sequence)[::-1].upper()
+
+
+def motif_sequence_on_positive_strand(row: pd.Series) -> str:
+    return str(row["matched_sequence"]).upper()
+
+
+def motif_sequence_for_plot(row: pd.Series) -> str:
+    return str(row["matched_sequence"]).upper()
+
+
+def build_consensus_sequence(rows: pd.DataFrame, start: int, end: int) -> str:
+    position_bases: dict[int, list[str]] = {pos: [] for pos in range(start, end + 1)}
+    covered_positions: set[int] = set()
+    for row in rows.itertuples(index=False):
+        row_dict = row._asdict()
+        sequence = motif_sequence_on_positive_strand(pd.Series(row_dict))
+        row_start = int(row_dict["motif_start"])
+        for offset, base in enumerate(sequence):
+            pos = row_start + offset
+            if start <= pos <= end and base in BASE_COLORS:
+                position_bases[pos].append(base)
+                covered_positions.add(pos)
+
+    consensus: list[str] = []
+    for pos in range(start, max(covered_positions) + 1 if covered_positions else end + 1):
+        bases = position_bases[pos]
+        if not bases:
+            continue
+        counts = {base: bases.count(base) for base in set(bases)}
+        consensus.append(sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0])
+    return "".join(consensus)
+
+
+def combine_overlapping_mads_motifs(motif_df: pd.DataFrame) -> pd.DataFrame:
+    if motif_df.empty or "symbol" not in motif_df.columns:
+        return motif_df
+
+    selected = motif_df[motif_df["symbol"].isin(COMBINED_MADS_SYMBOLS)].copy()
+    if selected.empty:
+        return motif_df
+
+    non_selected = motif_df[~motif_df.index.isin(selected.index)].copy()
+    combined_rows: list[dict[str, object]] = []
+
+    def append_group(indices: list[int], set_type: str, chrom: str, strand: str) -> None:
+        if len(indices) > 1:
+            combined_rows.append(build_combined_mads_row(motif_df.loc[indices], set_type, chrom, strand))
+        else:
+            combined_rows.append(motif_df.loc[indices[0]].to_dict())
+
+    for (set_type, chrom, strand), group in selected.groupby(["set_type", "chrom", "strand"], dropna=False):
+        group = group.sort_values(["motif_start", "motif_end", "motif_id"]).copy()
+        current_indices: list[int] = []
+        current_end: int | None = None
+
+        for idx, row in group.iterrows():
+            row_start = int(row["motif_start"])
+            row_end = int(row["motif_end"])
+            if not current_indices:
+                current_indices = [idx]
+                current_end = row_end
+                continue
+            if current_end is not None and row_start <= current_end:
+                current_indices.append(idx)
+                current_end = max(current_end, row_end)
+            else:
+                append_group(current_indices, set_type, chrom, strand)
+                current_indices = [idx]
+                current_end = row_end
+
+        if current_indices:
+            append_group(current_indices, set_type, chrom, strand)
+
+    result = pd.concat([non_selected, pd.DataFrame(combined_rows)], ignore_index=True)
+    return result.sort_values(["set_type", "chrom", "motif_start", "motif_end", "motif_id"]).reset_index(drop=True)
+
+
+def build_combined_mads_row(rows: pd.DataFrame, set_type: str, chrom: str, strand: str) -> dict[str, object]:
+    start = int(rows["motif_start"].min())
+    end = int(rows["motif_end"].max())
+    source_symbols = ",".join(sorted(set(rows["symbol"].astype(str))))
+    source_ids = ",".join(sorted(set(rows["motif_id"].astype(str))))
+    consensus = build_consensus_sequence(rows, start, end)
+    strand_label = "minus" if str(strand) == "-" else "plus" if str(strand) == "+" else "mixed"
+    return {
+        "motif_id": f"{COMBINED_MADS_LABEL}_{strand_label}_{start}_{end}",
+        "motif_alt_id": "combined",
+        "sequence_name": str(rows["sequence_name"].iloc[0]) if "sequence_name" in rows.columns else chrom,
+        "start": start,
+        "stop": end,
+        "chrom": chrom,
+        "motif_start": start,
+        "motif_end": end,
+        "strand": strand,
+        "score": float(pd.to_numeric(rows.get("score", pd.Series([0])), errors="coerce").max()),
+        "p-value": float(pd.to_numeric(rows.get("p-value", pd.Series([1])), errors="coerce").min()),
+        "q-value": float(pd.to_numeric(rows.get("q-value", pd.Series([1])), errors="coerce").min()),
+        "matched_sequence": consensus,
+        "symbol": f"{COMBINED_MADS_LABEL}_{strand_label}",
+        "set_type": set_type,
+        "motif_center": (start + end) / 2.0,
+        "source_symbols": source_symbols,
+        "source_motif_ids": source_ids,
+    }
 
 
 def load_feature_positions(prefix: str, feature_dir: Path) -> pd.DataFrame:
@@ -353,6 +482,8 @@ def load_motif_hits(path: Path, symbol_map: dict[str, str], set_type: str) -> pd
     motif_df["motif_end"] = pd.to_numeric(motif_df["stop"], errors="coerce")
     motif_df["strand"] = motif_df["strand"].fillna(".").astype(str)
     motif_df["matched_sequence"] = motif_df["matched_sequence"].fillna("").astype(str).str.upper()
+    negative_mask = motif_df["strand"] == "-"
+    motif_df.loc[negative_mask, "matched_sequence"] = motif_df.loc[negative_mask, "matched_sequence"].map(reverse_sequence)
     motif_df["symbol"] = motif_df["motif_id"].astype(str).map(symbol_map).fillna("")
     motif_df["symbol"] = motif_df.apply(
         lambda row: row["symbol"] if str(row["symbol"]).strip() else row["motif_id"], axis=1
@@ -392,6 +523,7 @@ def load_rca_motifs(args: argparse.Namespace, gene_model: GeneModel) -> pd.DataF
     ].copy()
     motif_df["motif_start"] = motif_df["motif_start"].astype(int)
     motif_df["motif_end"] = motif_df["motif_end"].astype(int)
+    motif_df = combine_overlapping_mads_motifs(motif_df)
     motif_df = motif_df.sort_values(["motif_center", "motif_id"]).reset_index(drop=True)
     return motif_df
 
@@ -414,8 +546,84 @@ def load_all_fimo_motifs(args: argparse.Namespace, gene_model: GeneModel) -> pd.
     ].copy()
     motif_df["motif_start"] = motif_df["motif_start"].astype(int)
     motif_df["motif_end"] = motif_df["motif_end"].astype(int)
+    motif_df = combine_overlapping_mads_motifs(motif_df)
     motif_df = motif_df.sort_values(["motif_center", "motif_id"]).reset_index(drop=True)
     return motif_df
+
+
+def load_ordered_mads_motifs(args: argparse.Namespace, gene_model: GeneModel) -> pd.DataFrame:
+    window_start = gene_model.start - args.gene_window_bp
+    window_end = gene_model.end + args.gene_window_bp
+    symbol_map = build_symbol_map(args.positive_annot, args.negative_annot)
+
+    positive_raw = read_motif_table(args.tf_positive)
+    negative_raw = read_motif_table(args.tf_negative).copy()
+    positive_keys = set(motif_occurrence_key(positive_raw))
+    negative_raw = negative_raw.loc[~motif_occurrence_key(negative_raw).isin(positive_keys)].copy()
+    negative_raw = merge_adjacent_same_motifs(negative_raw)
+
+    positive_tmp_path = args.workdir / "_ordered_mads_positive_tmp.tsv"
+    negative_tmp_path = args.workdir / "_ordered_mads_negative_tmp.tsv"
+    positive_raw.to_csv(positive_tmp_path, sep="\t", index=False)
+    negative_raw.to_csv(negative_tmp_path, sep="\t", index=False)
+    try:
+        positive_df = load_motif_hits(positive_tmp_path, symbol_map, "positive")
+        negative_df = load_motif_hits(negative_tmp_path, symbol_map, "negative")
+    finally:
+        for tmp_path in [positive_tmp_path, negative_tmp_path]:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    motif_df = pd.concat([positive_df, negative_df], ignore_index=True)
+    motif_df = motif_df[
+        (motif_df["chrom"] == gene_model.chrom)
+        & (motif_df["motif_end"] >= window_start)
+        & (motif_df["motif_start"] <= window_end)
+        & (motif_df["symbol"].isin(ORDERED_MADS_SYMBOLS))
+    ].copy()
+    if motif_df.empty:
+        return motif_df
+
+    motif_df["motif_start"] = motif_df["motif_start"].astype(int)
+    motif_df["motif_end"] = motif_df["motif_end"].astype(int)
+    motif_df["symbol_order"] = motif_df["symbol"].map({symbol: idx for idx, symbol in enumerate(ORDERED_MADS_SYMBOLS)})
+    symbol_strands = {
+        symbol: set(motif_df.loc[motif_df["symbol"] == symbol, "strand"].astype(str))
+        for symbol in ORDERED_MADS_SYMBOLS
+    }
+    collapsed_rows: list[dict[str, object]] = []
+    for strand in ["+", "-"]:
+        strand_df = motif_df[motif_df["strand"] == strand].copy()
+        if strand_df.empty:
+            continue
+        for symbol in ORDERED_MADS_SYMBOLS:
+            if strand == "-" and "+" in symbol_strands.get(symbol, set()):
+                continue
+            symbol_df = strand_df[strand_df["symbol"] == symbol].copy()
+            if symbol_df.empty:
+                continue
+            start = int(symbol_df["motif_start"].min())
+            end = int(symbol_df["motif_end"].max())
+            row = symbol_df.sort_values(["motif_start", "motif_end", "motif_id"]).iloc[0].to_dict()
+            strand_label = "minus" if strand == "-" else "plus"
+            row.update(
+                {
+                    "motif_id": f"{symbol}_{strand_label}_combined_rectangle",
+                    "motif_start": start,
+                    "motif_end": end,
+                    "start": start,
+                    "stop": end,
+                    "symbol": symbol,
+                    "strand": strand,
+                    "strand_label": strand_label,
+                    "set_type": ",".join(sorted(set(symbol_df["set_type"].astype(str)))),
+                    "motif_center": (start + end) / 2.0,
+                    "source_motif_ids": ",".join(sorted(set(symbol_df["motif_id"].astype(str)))),
+                    "source_count": len(symbol_df),
+                }
+            )
+            collapsed_rows.append(row)
+    return pd.DataFrame(collapsed_rows).reset_index(drop=True)
 
 
 def build_motif_feature_matches(
@@ -690,8 +898,6 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
     x_max = display_map[flank_end]
 
     ax.set_xlim(x_min, x_max)
-    if is_negative:
-        ax.invert_xaxis()
     ax.set_ylim(-1.25, 1.35)
     ax.axhline(0.0, color="#444444", linewidth=1.0, zorder=1)
     ax.axvspan(
@@ -704,13 +910,15 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
     ax.axvline(display_map[float(motif_start)], color="#969696", linestyle="--", linewidth=0.8)
     ax.axvline(display_map[float(motif_end)], color="#969696", linestyle="--", linewidth=0.8)
 
-    seq = str(motif_row["matched_sequence"]).upper()
-    for offset, base in enumerate(seq):
-        genomic_pos = motif_end - offset if is_negative else motif_start + offset
+    display_seq = motif_sequence_for_plot(motif_row)
+    base_y = -0.22 if is_negative else 0.55
+    base_jitter = -0.10 if is_negative else 0.10
+    for offset, base in enumerate(display_seq):
+        genomic_pos = motif_start + offset
         xpos = display_map[float(genomic_pos)]
         ax.text(
             xpos,
-            0.55 + (0.10 if offset % 2 else 0.0),
+            base_y + (base_jitter if offset % 2 else 0.0),
             base,
             ha="center",
             va="center",
@@ -722,7 +930,8 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
 
     if not valid_points.empty:
         placed_labels: list[tuple[float, int]] = []
-        label_levels = [-0.10, -0.19, -0.28, -0.37]
+        label_levels = [-0.44, -0.53, -0.62, -0.71] if is_negative else [-0.10, -0.19, -0.28, -0.37]
+        star_y = -0.88 if is_negative else -0.52
         for row in valid_points.sort_values(["feature_pos", "context", "methylation_feature"]).itertuples(index=False):
             xpos = display_map[float(row.feature_pos)]
             context = str(row.context)
@@ -730,7 +939,7 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
             size = 220 if bool(row.in_motif) else 170
             ax.scatter(
                 [xpos],
-                [-0.52],
+                [star_y],
                 marker="*",
                 s=size,
                 color=color,
@@ -781,7 +990,7 @@ def draw_motif_inset(ax: plt.Axes, motif_row: pd.Series, match_df: pd.DataFrame,
         0.98,
         0.96,
         (
-            f"(-) {motif_row['chrom']}:{motif_end}-{motif_start}"
+            f"(-) {motif_row['chrom']}:{motif_start}-{motif_end}"
             if is_negative
             else f"(+) {motif_row['chrom']}:{motif_start}-{motif_end}"
         ),
@@ -913,6 +1122,80 @@ def plot_gene_overview(
     plt.close(fig)
 
 
+def plot_ordered_mads_rectangles(
+    gene_model: GeneModel,
+    motif_df: pd.DataFrame,
+    output_dir: Path,
+    gene_window_bp: int,
+) -> None:
+    if motif_df.empty:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for old_file in [
+        output_dir / "ordered_AGL_AG_AP3_motif_rectangles.png",
+        output_dir / "ordered_AGL_AG_AP3_motif_rectangles.pdf",
+    ]:
+        if old_file.exists():
+            old_file.unlink()
+
+    for strand, strand_label in [("+", "plus"), ("-", "minus")]:
+        strand_df = motif_df[motif_df["strand"] == strand].copy()
+        present_symbols = [symbol for symbol in ORDERED_MADS_SYMBOLS if symbol in set(strand_df["symbol"].astype(str))]
+        if not present_symbols:
+            continue
+
+        fig_width = 1.05 * len(present_symbols) + 0.9
+        fig, ax = plt.subplots(figsize=(fig_width, 2.1))
+        ax.set_xlim(0, len(present_symbols))
+        ax.set_ylim(0, 1)
+
+        box_width = 0.76
+        box_height = 0.34
+        y = 0.50
+        for idx, symbol in enumerate(present_symbols):
+            x_center = idx + 0.5
+            ax.add_patch(
+                Rectangle(
+                    (x_center - box_width / 2.0, y - box_height / 2.0),
+                    box_width,
+                    box_height,
+                    facecolor="white",
+                    edgecolor="black",
+                    linewidth=2.0,
+                    zorder=2,
+                )
+            )
+            ax.text(
+                x_center,
+                y,
+                symbol,
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                color="black",
+                zorder=3,
+            )
+
+        ax.text(
+            0.01,
+            0.92,
+            f"strand: {strand}",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+            color="black",
+        )
+        ax.set_axis_off()
+        fig.subplots_adjust(left=0.015, right=0.985, top=0.86, bottom=0.14)
+        fig.savefig(output_dir / f"ordered_AGL_AG_AP3_motif_rectangles_{strand_label}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(output_dir / f"ordered_AGL_AG_AP3_motif_rectangles_{strand_label}.pdf", bbox_inches="tight")
+        plt.close(fig)
+
+
 def plot_single_motif_figure(
     motif_row: pd.Series,
     match_df: pd.DataFrame,
@@ -963,8 +1246,18 @@ def main() -> None:
     gene_model = load_gene_model(args.gff, args.gene_id)
     motif_df = load_rca_motifs(args, gene_model)
     all_fimo_motif_df = load_all_fimo_motifs(args, gene_model)
+    ordered_mads_df = load_ordered_mads_motifs(args, gene_model)
     if motif_df.empty:
         raise ValueError(f"No motifs from TF lists overlap {gene_model.gene_id} within ±{args.gene_window_bp} bp")
+
+    if not ordered_mads_df.empty:
+        ordered_mads_df.to_csv(output_root / "ordered_AGL_AG_AP3_motif_rectangles.tsv", sep="\t", index=False)
+        plot_ordered_mads_rectangles(
+            gene_model=gene_model,
+            motif_df=ordered_mads_df,
+            output_dir=output_root,
+            gene_window_bp=args.gene_window_bp,
+        )
 
     all_fimo_hits_across_models: list[pd.DataFrame] = []
     shap_top10_percent_stats: list[dict[str, object]] = []
