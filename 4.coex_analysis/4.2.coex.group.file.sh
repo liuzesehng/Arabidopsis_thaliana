@@ -3,7 +3,6 @@
 for file in $(ls salmon3/Abnormal/*/quant.genes.sf)
 do
     filename=$(awk -F'/' '{print $3}' <<< $file)
-    path=$(ls RCA/Abnormal/*/$filename*txt)
     p=$(awk -v var="$filename" -F',' '($1 == var || $11 == var) { print $30 }' Unnormal.csv | uniq)
     o=$(cat biosample_result.txt | grep -A 9 $p | grep "growth temperature=" | sed 's/.*\/growth temperature="\([^"]*\)".*/\1/')
     q=$(cat biosample_result.txt | grep -A 9 $p | grep "accession number=" | sed 's/.*\/accession number="\([^"]*\)".*/\1/')

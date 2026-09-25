@@ -1,0 +1,63 @@
+#!/bin/bash
+#RCA数据整理
+awk -F'\t' -v OFS='\t' 'BEGIN { print "Temperature", "total", "α", "β", "α/%", "β/%" }' > RCA/RCA.rnadata.tsv
+for path in $(ls RCA/rnadata/*.txt)
+do    
+    # 使用cut命令和斜杠（/）作为分隔符，提取第2个字段
+    tem=$(basename $path | cut -d'_' -f1)
+    tem=${tem/T}
+
+    # 提取名称
+    m=${path/.RCA.transcript.txt/}
+    name=$(basename ${m})
+
+    # 计算第四列第二行到第四行的值的总和
+    # sum=$(awk 'NR>=2 && NR<=4 {sum += $4} END {print sum}' $path)
+    sum=$(awk 'NR==5 {print $4}' $path)
+
+    # 计算第四列第二行的值
+    value2=$(awk 'NR==2 {print $4}' $path)
+
+    # 计算第四列第三行的值
+    value3=$(awk 'NR==3 {print $4}' $path)
+
+    # 计算第四列第四行的值
+    value4=$(awk 'NR==4 {print $4}' $path)
+
+    # 计算第四列第三行到第四行的值的总和
+    sum2=$(awk 'NR>=3 && NR<=4 {sum += $4} END {print sum}' $path)
+
+    # 调试输出
+    echo "Processing file: $path"
+    echo "Values: sum=$sum, value2=$value2, value3=$value3, value4=$value4"
+
+    # 确保 value2, value3, value4 和 sum 不是空的
+    if [ -n "$value2" ] && [ -n "$value3" ] && [ -n "$value4" ] && [ -n "$sum" ]; then
+        # 确保所有变量转换为普通浮点数格式
+        sum=$(echo $sum | awk '{printf "%.10f\n", $1}')
+        sum2=$(echo $sum2 | awk '{printf "%.10f\n", $1}')
+        value2=$(echo $value2 | awk '{printf "%.10f\n", $1}')
+        value3=$(echo $value3 | awk '{printf "%.10f\n", $1}')
+        value4=$(echo $value4 | awk '{printf "%.10f\n", $1}')
+
+        # 使用 bc 计算
+        persum2=$(echo "scale=4; ($sum2/$sum)*100" | bc)
+        per2=$(echo "scale=4; ($value2/$sum)*100" | bc)
+        per3=$(echo "scale=4; ($value3/$sum)*100" | bc)
+        per4=$(echo "scale=4; ($value4/$sum)*100" | bc)
+
+        # 添加前导零
+        persum2=$(printf "%.4f" $persum2)
+        per2=$(printf "%.4f" $per2)
+        per3=$(printf "%.4f" $per3)
+        per4=$(printf "%.4f" $per4)
+    else
+        echo "Warning: Missing values in $path"
+        per2=0
+        per3=0
+        per4=0
+    fi
+
+    # 将所有数据合并成一行，并确保没有换行符
+    echo -e "$tem\t$sum\t$value2\t$sum2\t$per2\t$persum2" >> RCA/RCA.rnadata.tsv
+done

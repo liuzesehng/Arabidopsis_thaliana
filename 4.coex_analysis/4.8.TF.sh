@@ -22,17 +22,17 @@ awk 'NR==FNR {a[$1]; next} $2 in a' total/other_module_genes_excluding_yellow_gr
 sort -k2,2 total/TF_other_in_module.txt -o total/TF_other_in_module.txt
 
 # 在第一行前添加标题行
-sed -i '1iTF_ID\tGene_ID\tTF_Family' total/TF_in_module.txt
-sed -i '1iTF_ID\tGene_ID\tTF_Family' 10C/TF_in_module.txt
-sed -i '1iTF_ID\tGene_ID\tTF_Family' 16C/TF_in_module.txt
-sed -i '1iTF_ID\tGene_ID\tTF_Family' 22C/TF_in_module.txt
+sed -i '1iTF_ID\tTF_Family' total/TF_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 10C/TF_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 16C/TF_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 22C/TF_in_module.txt
 
-sed -i '1iGene_ID\tTF_ID\tTF_Family' total/TF_negative_in_module.txt
-sed -i '1iGene_ID\tTF_ID\tTF_Family' 10C/TF_negative_in_module.txt
-sed -i '1iGene_ID\tTF_ID\tTF_Family' 16C/TF_negative_in_module.txt
-sed -i '1iGene_ID\tTF_ID\tTF_Family' 22C/TF_negative_in_module.txt
+sed -i '1iTF_ID\tTF_Family' total/TF_negative_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 10C/TF_negative_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 16C/TF_negative_in_module.txt
+sed -i '1iTF_ID\tTF_Family' 22C/TF_negative_in_module.txt
 
-sed -i '1iGene_ID\tTF_ID\tTF_Family' total/TF_other_in_module.txt
+sed -i '1iTF_ID\tTF_Family' total/TF_other_in_module.txt
 
 # all.fimo.out.filt 文件包含所有基因的TF结合位点信息
 awk 'NR==FNR {a[$1]; next} $1 in a' total/yellow_module_genes.txt all.fimo.out.filt > total/gene.TF_ids.txt

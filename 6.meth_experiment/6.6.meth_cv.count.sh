@@ -1,0 +1,76 @@
+#!/bin/bash
+# 输出文件名
+output_file="meth_experiment/RCA.up_down.bed"
+
+# 起始值和结束值
+start=16568745
+end=16575692
+
+# 打开输出文件
+exec > "$output_file"
+
+# 生成内容
+for ((i=start; i<end; i++)); do
+    echo -e "NC_003071.7\t$i\t$((i+1))"
+done
+
+for file in $(find methdata -name *RCA.promoter_terminator.processed.bedGraph)
+do
+    echo "$file" >> meth_experiment/meth.txt
+done
+
+# 定义处理每个文件对或单文件的函数
+process_bed() {
+    file="$1"
+
+    # 提取数据
+    while IFS=$'\t' read -r col1 start end; do
+
+        # 定义处理单个文件的函数
+            process_file() {
+            local i="$1"
+            local col1="$2"
+            local start="$3"
+            local end="$4"
+            local file="$5"
+            # 使用 awk 打印符合条件的第四列的值
+            awk -v col1="$col1" -v start="$start" -v end="$end" '$1 == col1 && $2 == start && $3 == end {print $4}' "$i" >> meth_experiment/$file.me_count.txt           
+        }
+
+        # 导出函数以便 GNU Parallel 使用
+        export -f process_file
+
+        # 并行处理每个文件，并传递所需参数
+        grep "$file" meth_experiment/meth.txt | parallel -j 84 process_file {} "$col1" "$start" "$end" "$file"
+
+
+        # 计算均值
+        mean=$(awk '{sum+=$1} END {print sum/NR}' meth_experiment/$file.me_count.txt)
+        # 计算标准差
+        std_dev=$(awk -v mean=$mean '{sum+=($1-mean)^2} END {print sqrt(sum/NR)}' meth_experiment/$file.me_count.txt)
+        # 计算变异系数
+        cv=$(awk -v std_dev=$std_dev -v mean=$mean 'BEGIN {print (std_dev/mean) * 100}')
+
+        if [ -z "$mean" ];then
+            mean=""
+        fi
+
+        if [ -z "$cv" ];then
+            cv=""
+        fi
+
+        echo -e "NC_003071.7\t$start\t$end\t$mean\t$cv" >> meth_experiment/$file.CV.bedGraph
+
+        rm -rf meth_experiment/$file.me_count.txt
+
+    done < meth_experiment/RCA.up_down.bed
+}
+
+# 导出函数以便 GNU Parallel 使用
+export -f process_bed
+
+# 使用 parallel 处理所有文件类型
+parallel -j 3 process_bed ::: CG CHG CHH
+
+
+
