@@ -2,8 +2,10 @@
 """按前三列匹配 meth 的实际行号，为 meth_experiment 记录添加编号。
 
 默认输出 meth_experiment/{CG,CHG,CHH}.CV.before.numbered.tsv（无表头）。
-保留目标文件原始列及顺序；CHG 已知未匹配位点编号为 CHG_338，
-其他未匹配编号为 NA，并在标准错误中报告。
+保留目标文件原始列及顺序，匹配位点使用参考文件行号。
+开头 n 个未匹配位点编号为 1-n 到 0；其余未匹配位点在前一个匹配
+编号后添加 .1、.2 等后缀（包括末尾位点）。后缀是字符串，不是小数。
+相同位点重复出现时复用编号；非空目标文件完全无匹配时报告错误。
 新增编号列后不再是标准 bedGraph 格式，因此使用 .tsv 后缀。
 """
 
@@ -17,10 +19,6 @@ DEFAULT_LIST_DIR = Path(
     "zesheng/Arabidopsis_thaliana/list"
 )
 SUFFIX = ".CV.before.bedGraph"
-# 用户指定的未匹配位点编号。
-UNMATCHED_IDS = {
-    ("CHG", ("NC_003071.7", "16568832", "16568833")): "CHG_338",
-}
 
 
 def read_records(path):
@@ -49,18 +47,37 @@ def number_records(reference, target):
             )
         index[key] = line_number
 
+    records = list(read_records(target))
+    first_match = next(
+        (i for i, (_, key, _) in enumerate(records) if key in index), None
+    )
+    if records and first_match is None:
+        raise ValueError(f"{target}: 没有任何匹配位点，无法按相邻匹配编号插入")
+
+    # 开头未匹配位点以 0 结尾；重复坐标仅占一个编号。
+    leading_keys = dict.fromkeys(key for _, key, _ in records[:first_match])
+    assigned = {
+        key: f"{prefix}_{number}"
+        for number, key in enumerate(leading_keys, 1 - len(leading_keys))
+    }
+    last_match = None
+    suffix_counts = {}
     result = []
     missing = 0
-    for line_number, key, raw in read_records(target):
+    for line_number, key, raw in records:
         reference_line = index.get(key)
         if reference_line is None:
-            identifier = UNMATCHED_IDS.get((prefix, key), "NA")
+            if key not in assigned:
+                suffix_counts[last_match] = suffix_counts.get(last_match, 0) + 1
+                assigned[key] = f"{prefix}_{last_match}.{suffix_counts[last_match]}"
+            identifier = assigned[key]
             missing += 1
             print(
-                f"警告：{target}:{line_number}: 未匹配 {key}，编号设为 {identifier}",
+                f"提示：{target}:{line_number}: 未匹配 {key}，插入编号 {identifier}",
                 file=sys.stderr,
             )
         else:
+            last_match = reference_line
             identifier = f"{prefix}_{reference_line}"
         result.append(f"{identifier}\t{raw}\n")
     return result, missing
