@@ -79,7 +79,7 @@ FEATURE_PATTERN = re.compile(
     r"^\s*((?:CHH|CHG|CG|snp)_[^:]+):\s*([-+0-9.eE]+)\s*$"
 )
 
-FIGURE_WIDTH_IN = 183.0 / 25.4
+FIGURE_WIDTH_IN = 240.0 / 25.4
 FIGURE_HEIGHT_IN = 180.0 / 25.4
 MIN_FONT_PT = 5.0
 
