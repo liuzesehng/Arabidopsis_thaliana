@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regional CHH methylation versus temperature, with exact Spearman inference.
+"""Regional CG, CHG and CHH methylation versus temperature, with exact Spearman.
 
 BED site coordinates are zero-based, half-open; the requested region is
 one-based and inclusive. For a single-base site, position_1based = start + 1
@@ -35,15 +35,53 @@ PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = PROJECT / "list/meth_experiment"
 DEFAULT_INPUT = DEFAULT_OUTPUT / "Alt.all.snp_meth.tsv"
 DEFAULT_BED = DEFAULT_OUTPUT / "CHH.CV.before.numbered.tsv"
-DEFAULT_QA_TOOLS = Path("/datapool/home/2023102768/.codex/skills/nature-figure/scripts")
+CONTEXTS = ("CG", "CHG", "CHH")
+DEFAULT_BEDS = {context: DEFAULT_OUTPUT / f"{context}.CV.before.numbered.tsv" for context in CONTEXTS}
+DEFAULT_QA_TOOLS = Path("/datapool/home/2023102768/.agents/skills/nature-figure/scripts")
 # Requested 1-based closed interval: [16574892 - 150, 16575292 + 150].
 CHROM, START, END = "NC_003071.7", 16574742, 16575442
 TEMPERATURES = tuple(range(4, 33, 4))
-PREFIX = f"CHH_region_{START}_{END}_temperature"
-BLUE = "#2F6DAE"
+PREFIX = f"CG_CHG_CHH_region_{START}_{END}_temperature"
+BLUE = "#225E7A"
+REPLICATE_COLOR = "#85AEC5"
+PANEL_WIDTH_MM = 75
+FIG_WIDTH_MM = 225
+FIG_HEIGHT_MM = 95
+DEFAULT_DPI = 600
+Y_SCALES = {"CG": (80, 100, 5), "CHG": (35, 70, 5), "CHH": (5, 25, 5)}
 
 
-def load_sites(path: Path) -> pd.DataFrame:
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
+def load_sites(path: Path, context: str = "CHH") -> pd.DataFrame:
     """Read ID/chrom/BED-start/BED-end; select single-base sites in 1-based space."""
     records, seen_ids, seen_positions = [], set(), set()
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -55,8 +93,8 @@ def load_sites(path: Path) -> pd.DataFrame:
                 start, end = int(row[2]), int(row[3])
             except ValueError as exc:
                 raise ValueError(f"coordinate row {line}: invalid BED coordinates") from exc
-            if not feature.startswith("CHH_") or not chrom or start < 0 or end <= start:
-                raise ValueError(f"coordinate row {line}: invalid CHH ID or BED interval")
+            if not feature.startswith(f"{context}_") or not chrom or start < 0 or end <= start:
+                raise ValueError(f"coordinate row {line}: invalid {context} ID or BED interval")
             if end != start + 1:
                 raise ValueError(f"coordinate row {line}: expected a single-base BED site (end = start + 1)")
             if feature in seen_ids or (chrom, start, end) in seen_positions:
@@ -65,10 +103,10 @@ def load_sites(path: Path) -> pd.DataFrame:
             seen_positions.add((chrom, start, end))
             position_1based = start + 1
             if chrom == CHROM and START <= position_1based <= END:
-                records.append(dict(feature=feature, chromosome=chrom, start=start, end=end,
+                records.append(dict(context=context, feature=feature, chromosome=chrom, start=start, end=end,
                                     position_1based=position_1based))
     if not records:
-        raise ValueError("no CHH sites fall within the requested 1-based inclusive region")
+        raise ValueError(f"no {context} sites fall within the requested 1-based inclusive region")
     return pd.DataFrame(records).sort_values(["start", "end", "feature"]).reset_index(drop=True)
 
 
@@ -125,7 +163,7 @@ def summarize(data: pd.DataFrame, sites: pd.DataFrame):
         if valid < 2:
             raise ValueError(f"{temperature} °C: at least two valid regional replicates required for sample SD")
         # Deterministic display offsets never enter summaries or correlation.
-        points.loc[block.index, "x_plot"] = temperature + np.linspace(-0.55, 0.55, len(block))
+        points.loc[block.index, "x_plot"] = temperature + np.linspace(-0.42, 0.42, len(block))
         groups.append(dict(temperature=int(temperature), n_valid=int(valid),
                            n_missing=int(block.missing.sum()), n_sites=len(sites),
                            mean=float(block.methylation.mean()),
@@ -153,70 +191,137 @@ def exact_spearman(means):
                 p=extreme / len(permutations), extreme_permutations=extreme, status="ok")
 
 
+def analyze_contexts(data, sites):
+    """Keep each context's within-sample averaging independent of other sites."""
+    point_tables, group_tables, tests = [], [], []
+    for context in CONTEXTS:
+        selected = sites.loc[sites.context.eq(context)]
+        points, groups = summarize(data, selected)
+        points.insert(0, "context", context)
+        groups.insert(0, "context", context)
+        point_tables.append(points)
+        group_tables.append(groups)
+        tests.append(dict(context=context, n_sites=len(selected),
+                          n_valid_samples=int((~points.missing).sum()),
+                          **exact_spearman(groups["mean"])))
+    statistics = pd.DataFrame(tests)
+    # Report the original exact P in panels; provide BH q for the three tests.
+    p = statistics.p.to_numpy()
+    q = np.full(len(p), np.nan)
+    finite = np.flatnonzero(np.isfinite(p))
+    order = finite[np.argsort(p[finite], kind="stable")]
+    if len(order):
+        adjusted = p[order] * len(p) / np.arange(1, len(order) + 1)
+        q[order] = np.minimum(1, np.minimum.accumulate(adjusted[::-1])[::-1])
+    statistics["q_bh"] = q
+    statistics["adjustment"] = "panel P unadjusted; q_bh across three contexts"
+    return pd.concat(point_tables, ignore_index=True), pd.concat(group_tables, ignore_index=True), statistics
+
+
 def load_auditor(directory):
+    if not Path(directory / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {directory / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location("chh_region_alignment", directory / "audit_panel_alignment.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load panel alignment auditor")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
 def make_figure(points, groups, statistics, auditor, qa_dir):
-    plt.rcParams.update({"font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans"],
-                         "font.size": 7, "axes.labelsize": 7, "axes.titlesize": 8,
-                         "xtick.labelsize": 6.5, "ytick.labelsize": 6.5,
+    plt.rcParams.update({"font.family": "sans-serif", "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans", "sans-serif"],
+                         "font.size": 6.6, "axes.labelsize": 7, "axes.titlesize": 8.2,
+                         "xtick.labelsize": 6.3, "ytick.labelsize": 6.3,
                          "axes.spines.top": False, "axes.spines.right": False,
-                         "axes.linewidth": 0.6, "pdf.fonttype": 42, "svg.fonttype": "none",
+                         "axes.linewidth": 0.75, "pdf.fonttype": 42, "svg.fonttype": "none",
                          "savefig.facecolor": "white", "legend.frameon": False})
-    valid = points.loc[~points.missing]
-    lower = min(float((groups["mean"] - groups.sd).min()), float(valid.methylation.min()))
-    upper = max(float((groups["mean"] + groups.sd).max()), float(valid.methylation.max()))
-    if lower < 0 or upper > 25:
-        raise ValueError("data or mean ± SD exceeds the specified 0–25% axis; export stopped to avoid clipping")
-    fig = plt.figure(figsize=(89 / 25.4, 85 / 25.4))
-    ax = fig.add_subplot(111)
-    fig.subplots_adjust(left=0.17, right=0.965, bottom=0.40, top=0.86)
-    ax.set_gid("a")
-    ax.axvspan(22, 26, color="#E8E8E8", alpha=0.75, lw=0, zorder=0)
-    ax.set_axisbelow(True)
-    ax.grid(axis="y", color="#E3E3E3", lw=0.4)
-    ax.scatter(valid.x_plot, valid.methylation, s=13, color=BLUE, alpha=0.40,
-               edgecolors="none", zorder=3)
-    ax.plot(groups.temperature, groups["mean"], color=BLUE, lw=0.8, zorder=2)
-    ax.errorbar(groups.temperature, groups["mean"], yerr=groups.sd, fmt="o", ms=3.5,
-                color=BLUE, ecolor=BLUE, elinewidth=0.75, capsize=2.5, capthick=0.75,
-                markeredgecolor="white", markeredgewidth=0.4, zorder=4)
-    ax.set(xlim=(2, 34), ylim=(0, 25), xticks=TEMPERATURES, yticks=np.arange(0, 26, 5),
-           xlabel="Temperature (°C)", ylabel="CHH methylation (%)")
-    ax.tick_params(length=2.5, width=0.6)
-    ax.set_title("Regional CHH methylation", pad=9, fontweight="bold")
-    ax.text(0, 1, "(a)", fontsize=8, fontweight="bold", ha="left", va="bottom",
-            transform=ax.transAxes + ScaledTranslation(-23 / 72, 7 / 72, fig.dpi_scale_trans))
-    if statistics["status"] == "ok":
-        p = statistics["p"]
-        p_text = f"{p:.3f}" if p >= 0.001 else f"{p:.2e}"
-        annotation = f"ρ = {statistics['rho']:.2f}; P = {p_text}"
-    else:
-        annotation = "ρ = NA; P = NA (constant)"
-    ax.text(0.04, 0.94, annotation, transform=ax.transAxes, va="top", fontsize=7)
-    n_two = ", ".join(str(int(t)) for t in groups.loc[groups.n_valid.eq(2), "temperature"])
-    count_line = f"n = 2 at {n_two} °C; n = 3 otherwise." if n_two else "n = 3 at each temperature."
-    notes = [f"{CHROM}: {START}–{END} (1-based)",
-             f"{int(groups.n_sites.iloc[0])} CHH sites; equal-weight mean within each sample.",
-             "Faint points: samples; solid points: mean ± SD.",
-             count_line, "Lines describe trends; gray band marks 24 °C.",
-             "Spearman: 8 means; two-sided exact P (unadjusted)."]
+    fig = plt.figure(figsize=(FIG_WIDTH_MM / 25.4, FIG_HEIGHT_MM / 25.4))
+    # Keep panel width fixed; increase height to reduce the plot width/height ratio.
+    plot_width_mm = PANEL_WIDTH_MM * (0.965 - 0.17)
+    gutter_mm = PANEL_WIDTH_MM - plot_width_mm
+    grid = fig.add_gridspec(1, 3, left=PANEL_WIDTH_MM * 0.17 / FIG_WIDTH_MM,
+                           right=1 - PANEL_WIDTH_MM * 0.035 / FIG_WIDTH_MM,
+                           bottom=0.40, top=0.86, wspace=gutter_mm / plot_width_mm)
+    labels, panels = [], []
+    for index, context in enumerate(CONTEXTS):
+        valid = points.loc[points.context.eq(context) & ~points.missing]
+        sg = groups.loc[groups.context.eq(context)]
+        st = statistics.loc[statistics.context.eq(context)].iloc[0]
+        lower = min(float((sg["mean"] - sg.sd).min()), float(valid.methylation.min()))
+        upper = max(float((sg["mean"] + sg.sd).max()), float(valid.methylation.max()))
+        ymin, tick_max, step = Y_SCALES[context]
+        # Reserve annotation space as in the reference, relative to the displayed lower bound.
+        ymax = max(tick_max, ymin + (upper - ymin) * 1.28)
+        if lower < ymin:
+            raise ValueError(f"{context}: data or mean ± SD falls below {ymin}%; export stopped")
+        ax = fig.add_subplot(grid[0, index])
+        ax.set_gid(chr(97 + index))
+        ax.axvspan(22, 26, color="#E9E9E9", alpha=0.9, lw=0, zorder=0)
+        ax.set_axisbelow(True)
+        ax.scatter(valid.x_plot, valid.methylation, s=18, color=REPLICATE_COLOR, alpha=0.78,
+                   edgecolors="white", linewidths=0.45, zorder=3)
+        ax.plot(sg.temperature, sg["mean"], color=BLUE, lw=1.15, alpha=0.95, zorder=4)
+        ax.errorbar(sg.temperature, sg["mean"], yerr=sg.sd, fmt="D", ms=4.0,
+                    color=BLUE, ecolor=BLUE, elinewidth=0.9, capsize=2.5, capthick=0.9,
+                    markeredgecolor="white", markeredgewidth=0.55, zorder=5)
+        ax.set(xlim=(2, 34), ylim=(ymin, ymax), xticks=TEMPERATURES, yticks=np.arange(ymin, min(tick_max, 100) + 1, step),
+               xlabel="Temperature (°C)", ylabel=f"{context} methylation (%)")
+        ax.tick_params(length=2.7, width=0.65, direction="out")
+        ax.set_title(context, pad=9, fontweight="semibold")
+        labels.append(ax.text(0, 1, f"({chr(97 + index)})", fontsize=8, fontweight="bold", ha="left", va="bottom",
+                              transform=ax.transAxes + ScaledTranslation(-23 / 72, 7 / 72, fig.dpi_scale_trans)))
+        if st.status == "ok":
+            p_text = f"{st.p:.4f}" if st.p >= 0.0001 else f"{st.p:.2e}"
+            rho_text = f"{st.rho:.3f}".replace("-", "\N{MINUS SIGN}")
+            annotation = f"ρ = {rho_text}, P = {p_text}"
+        else:
+            annotation = "ρ = NA; P = NA (constant)"
+        ax.text(0.025, 0.965, annotation, transform=ax.transAxes,
+                ha="left", va="top", fontsize=5.8, color="#222222", zorder=6)
+        panels.append(dict(panel=f"({chr(97 + index)})", context=context, n_sites=int(sg.n_sites.iloc[0]),
+                           plotted_replicates=len(valid), means=len(sg), error_bars=len(sg),
+                           data_and_sd_extent=[lower, upper], ylim=[ymin, ymax],
+                           ytick_max=min(tick_max, 100), annotation_axes_fraction=[0.025, 0.965],
+                           uncertainty="sample SD (ddof=1)"))
+    count_descriptions = []
+    for context in CONTEXTS:
+        sg = groups.loc[groups.context.eq(context)]
+        n_two = ", ".join(str(int(t)) for t in sg.loc[sg.n_valid.eq(2), "temperature"])
+        count_descriptions.append(f"n = 2 at {n_two} °C; n = 3 otherwise." if n_two else "n = 3 at each temperature.")
+    count_line = count_descriptions[0] if len(set(count_descriptions)) == 1 else "Replicate counts by context and temperature are reported in the caption."
+    notes = [f"{CHROM}: {START}–{END} (1-based, inclusive); equal-weight site mean within each sample.",
+             "Light circles: samples; dark diamonds: mean ± sample SD. " + count_line,
+             "Lines describe trends only; gray bands mark 24 °C. Note the different y-axis scales.",
+             "Spearman: 8 temperature means; two-sided exact P (unadjusted). BH q values are provided in the statistics table."]
     for i, note in enumerate(notes):
-        fig.text(0.065, (4 + (len(notes) - 1 - i) * 3.25) / 85, note, fontsize=5.5, va="bottom")
+        fig.text(0.035, (4 + (len(notes) - 1 - i) * 3.7) / FIG_HEIGHT_MM, note, fontsize=6, va="bottom")
     fig.canvas.draw()
-    auditor.require_matplotlib_panel_alignment(fig, json_out=qa_dir / "alignment.json", strict=True)
-    return fig, dict(panel="(a)", plotted_replicates=len(valid), means=len(groups),
-                     error_bars=len(groups), data_and_sd_extent=[lower, upper], ylim=[0, 25])
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa_dir / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, label in zip(manifest["panels"], labels):
+            anchor = label.get_transform().transform(label.get_position())
+            panel["panel_label"] = label.get_text().strip("()")
+            panel["panel_label_anchor_pt"] = list(map(float, fig.dpi_scale_trans.inverted().transform(anchor) * 72))
+        report = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5, gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(report, qa_dir / "alignment.json")
+        if auditor.exit_code(report, strict=True):
+            raise RuntimeError(auditor.render_text(report, strict=True))
+    return fig, panels
 
 
 def run_audit(command, output):
+    if _skip_missing_qa_command(command, output):
+        return
     result = subprocess.run(command, capture_output=True, text=True)
     output.write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
@@ -226,28 +331,30 @@ def run_audit(command, output):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--bed", type=Path, default=DEFAULT_BED)
+    parser.add_argument("--bed", "--chh-bed", dest="chh_bed", type=Path, default=DEFAULT_BED,
+                        help="numbered CHH BED table (--bed retained as an alias)")
+    parser.add_argument("--cg-bed", type=Path, default=DEFAULT_BEDS["CG"])
+    parser.add_argument("--chg-bed", type=Path, default=DEFAULT_BEDS["CHG"])
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--qa-tools", type=Path, default=DEFAULT_QA_TOOLS)
     parser.add_argument("--validate-only", action="store_true", help="validate data without creating outputs")
     args = parser.parse_args(argv)
-    sites = load_sites(args.bed)
+    bed_paths = {"CG": args.cg_bed, "CHG": args.chg_bed, "CHH": args.chh_bed}
+    sites = pd.concat([load_sites(bed_paths[c], c) for c in CONTEXTS], ignore_index=True)
     data = load_data(args.input, sites)
-    points, groups = summarize(data, sites)
-    statistics = exact_spearman(groups["mean"])
+    points, groups, statistics = analyze_contexts(data, sites)
     if args.validate_only:
-        print(f"PASS: {len(sites)} sites, {len(points)} sample rows, {int((~points.missing).sum())} valid replicates")
+        print(f"PASS: {len(sites)} sites, {len(data)} sample rows, {int((~points.missing).sum())} valid context/sample means")
         print(groups.to_string(index=False))
         print(statistics)
         return 0
     auditor = load_auditor(args.qa_tools)
-    if importlib.util.find_spec("fitz") is None:
-        raise RuntimeError("NOT AUDITABLE: PDF collision QA requires PyMuPDF (fitz)")
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir = args.output_dir / f"{PREFIX}_QA"
     qa_dir.mkdir(exist_ok=True)
     run_audit([sys.executable, str(args.qa_tools / "validate_figure.py"), __file__], qa_dir / "source-preflight.txt")
-    fig, panel = make_figure(points, groups, statistics, auditor, qa_dir)
+    fig, panels = make_figure(points, groups, statistics, auditor, qa_dir)
     stem = args.output_dir / PREFIX
     try:
         fig.savefig(stem.with_suffix(".pdf"))
@@ -256,52 +363,66 @@ def main(argv=None):
         run_audit([sys.executable, str(args.qa_tools / "audit_figure_collisions.py"), str(stem.with_suffix(".pdf")),
                    "--strict", "--json-out", str(qa_dir / "collision-audit.json")], qa_dir / "collision-audit.txt")
         fig.savefig(stem.with_suffix(".svg"))
-        fig.savefig(stem.with_suffix(".png"), dpi=600)
-        fig.savefig(stem.with_suffix(".tiff"), dpi=600, pil_kwargs={"compression": "tiff_lzw"})
+        fig.savefig(stem.with_suffix(".png"), dpi=DEFAULT_DPI)
+        fig.savefig(stem.with_suffix(".tiff"), dpi=DEFAULT_DPI, pil_kwargs={"compression": "tiff_lzw"})
     finally:
         plt.close(fig)
     for name, table in [("sites", sites), ("replicates", points), ("summary", groups),
-                        ("statistics", pd.DataFrame([statistics]))]:
+                        ("statistics", statistics)]:
         table.to_csv(stem.with_suffix(f".{name}.tsv"), sep="\t", index=False, na_rep="NA", float_format="%.12g")
-    counts = ", ".join(f"{r.temperature} °C: n = {r.n_valid}" for r in groups.itertuples())
-    caption = ("# Regional CHH methylation and temperature\n\n"
-               f"(a) Region {CHROM}:{START}–{END} in 1-based coordinates, including both endpoints, "
-               f"including {len(sites)} CHH sites. The interval extends from 16574892 − 150 to 16575292 + 150. "
-               "The numbered coordinate file contains CHH ID, chromosome, BED start (0-based), and BED end "
+    counts = "\n\n".join(c + ": " + ", ".join(f"{r.temperature} °C: n = {r.n_valid}" for r in
+                           groups.loc[groups.context.eq(c)].itertuples()) for c in CONTEXTS)
+    panel_description = "; ".join(f"({chr(97+i)}) {c}, {int(sites.context.eq(c).sum())} sites" for i, c in enumerate(CONTEXTS))
+    caption = ("# Regional CG, CHG and CHH methylation and temperature\n\n"
+               f"Panels {panel_description}. Region {CHROM}:{START}–{END} uses 1-based coordinates, including both endpoints. "
+               "The interval extends from 16574892 − 150 to 16575292 + 150. "
+               "The numbered coordinate files contain site ID, chromosome, BED start (0-based), and BED end "
                "in columns 1–4. All sites are single-base intervals; each 1-based site position is BED start + 1, "
                "equal to BED end. The site table retains original BED start/end and adds position_1based. "
-               "Each sample value is the equal-weight arithmetic mean of its available site percentages; "
+               "Each sample value is the equal-weight arithmetic mean of its available site percentages within its methylation context; "
                "no read-depth weighting or percentage rescaling is applied. "
-               "Faint points show individual sample means with display-only horizontal offsets. "
-               "Solid points and error bars show the mean and sample SD (ddof=1) across replicates. "
+               "Light blue circles show individual sample means with display-only horizontal offsets. "
+               "Dark blue diamonds and error bars show the mean and sample SD (ddof=1) across replicates. "
                "Connecting lines describe trends only, without fitting a model. "
-               "The gray band marks 24 °C.\n\n"
+               "The gray bands mark 24 °C. Labeled y-axis ticks span 80–100% (CG), 35–70% (CHG), and 5–25% (CHH). "
+               "The displayed upper limit leaves at least 28% headroom above the data/SD extent relative to the lower bound; "
+               "CG has an unlabeled annotation area above 100%, with no ticks above 100%. "
+               f"Each panel is {PANEL_WIDTH_MM} × {FIG_HEIGHT_MM:.3f} mm, with increased height at fixed width. "
+               "Correlation annotations are inside the upper-left plot area at axes fraction (0.025, 0.965); "
+               "visual slopes should not be compared directly across these different scales.\n\n"
                f"Valid replicate counts: {counts}. Empty measurements are missing, never zero; "
                "samples with no measured sites are omitted from summaries and plotting, but retained in the replicate table. "
                "Partially missing samples use available sites and are flagged with their valid site counts. "
                "Sample rows are treated as independent experimental replicates; biological versus technical status "
                "is not specified by the input table.\n\n"
                "Spearman correlation uses eight temperature means. The two-sided exact P value enumerates "
-               "all 8! = 40,320 pairings, including tied-rank multiplicities. No multiple-testing correction "
-               "is applied because one regional correlation is tested. These descriptive associations do not establish causality.\n")
+               "all 8! = 40,320 pairings, including tied-rank multiplicities, separately for each context. "
+               "Panel annotations show unadjusted exact P values; BH q values across the three planned tests "
+               "are provided in the statistics table. These descriptive associations do not establish causality.\n")
     stem.with_suffix(".caption.md").write_text(caption, encoding="utf-8")
-    report = dict(status="automated_QA_PASS", panel=panel,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), panels=panels,
+                  figure_contract=dict(question="How does regional mean methylation vary with temperature across CG, CHG and CHH?",
+                                       archetype="quantitative grid", panel_order=list(CONTEXTS), backend="python",
+                                       size_mm=[FIG_WIDTH_MM, FIG_HEIGHT_MM], panel_size_mm=[PANEL_WIDTH_MM, FIG_HEIGHT_MM],
+                                       plot_area_mm=[PANEL_WIDTH_MM * 0.795, FIG_HEIGHT_MM * 0.46],
+                                       reuse="structural adaptation"),
                   region=dict(chromosome=CHROM, start=START, end=END, coordinate_system="1-based inclusive"),
                   equivalent_bed_region=dict(chromosome=CHROM, start=START - 1, end=END),
                   coordinate_convention="single-base BED site: position_1based = column 3 + 1 = column 4; START <= position_1based <= END",
                   input_sha256=hashlib.sha256(args.input.read_bytes()).hexdigest(),
-                  bed_sha256=hashlib.sha256(args.bed.read_bytes()).hexdigest(),
+                  bed_sha256={c: hashlib.sha256(p.read_bytes()).hexdigest() for c, p in bed_paths.items()},
                   script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                  n_sites=len(sites), source_sample_rows=len(points),
-                  missing_samples=points.loc[points.missing, "sample"].tolist(),
-                  partial_missing_samples=points.loc[points.partial_missing, "sample"].tolist(),
+                  n_sites=len(sites), site_counts={c: int(sites.context.eq(c).sum()) for c in CONTEXTS},
+                  source_sample_rows=len(data), source_context_sample_rows=len(points),
+                  missing_samples=points.loc[points.missing, ["context", "sample"]].to_dict("records"),
+                  partial_missing_samples=points.loc[points.partial_missing, ["context", "sample"]].to_dict("records"),
                   excluded_columns="Features outside the selected 1-based inclusive region and non-methylation columns.",
-                  correlation_unit="eight temperature means", alignment="not applicable: single panel",
+                  correlation_unit="eight temperature means per context", alignment=("SKIPPED" if auditor is None else "PASS: three comparable panels, 1.5 pt tolerance"),
                   visual_review="pending", versions=dict(python=sys.version.split()[0], numpy=np.__version__,
                   pandas=pd.__version__, scipy=scipy.__version__, matplotlib=matplotlib.__version__))
     (qa_dir / "summary.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
-    print(pd.DataFrame([statistics]).to_string(index=False))
-    print(f"PASS: {len(sites)} sites; {panel['plotted_replicates']} points; 8 means/SD; outputs: {stem}")
+    print(statistics[["context", "n_sites", "rho", "p", "q_bh"]].to_string(index=False))
+    print(f"PASS: {len(sites)} sites; {sum(p['plotted_replicates'] for p in panels)} points; 24 means/SD; outputs: {stem}")
     return 0
 
 

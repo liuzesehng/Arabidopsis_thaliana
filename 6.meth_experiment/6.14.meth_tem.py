@@ -32,20 +32,53 @@ from scipy.interpolate import PchipInterpolator
 PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_DIRECTORY = PROJECT / "list/meth_experiment"
 DEFAULT_INPUT = DEFAULT_DIRECTORY / "Alt.all.snp_meth.tsv"
-DEFAULT_QA_TOOLS = Path("/datapool/home/2023102768/.codex/skills/nature-figure/scripts")
+DEFAULT_QA_TOOLS = Path("/datapool/home/2023102768/.agents/skills/nature-figure/scripts")
 DEFAULT_DPI = 600
-DEFAULT_BIN_SIZE = 400
+DEFAULT_BIN_SIZE = 500
 DEFAULT_CGMAPTOOLS = Path("/datapool/life-gongl/zesheng/program/cgmaptools-0.1.3/cgmaptools")
 FIG_WIDTH_MM = 183
 FIG_HEIGHT_MM = 240
 BODY_DISPLAY_WIDTH = 2.0
 PREFIX = "RCA_temperature_methylation_profile"
 CONTEXTS = ("CG", "CHG", "CHH")
+# IDs are strings: negative/zero leading IDs and .1/.2 insertion suffixes
+# are produced by the numbering workflow; never interpret them as floats.
+SITE_ID_SUFFIX_PATTERN = r"-?\d+(?:\.\d+)?"
 TEMPERATURES = tuple(range(4, 33, 4))
 CHROMOSOME = "NC_003071.7"
 GENE_START, GENE_END, FLANK = 16570745, 16573692, 2000
 COLORS = ("#3B4CC0", "#2878B5", "#249EA0", "#629B55",
           "#B49125", "#E17C30", "#CC4245", "#823B85")
+
+
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
 
 
 def read_rows(path):
@@ -93,7 +126,7 @@ def load_data(input_path, position_paths):
         raise ValueError("replicate numbers must be positive and unique within temperature")
     if set(data.temperature) != set(TEMPERATURES):
         raise ValueError("expected temperature groups (4, 8, 12, 16, 20, 24, 28, 32)")
-    features = [c for c in header if re.fullmatch(r"(?:CG|CHG|CHH)_\d+", c)]
+    features = [c for c in header if re.fullmatch(r"(?:CG|CHG|CHH)_" + SITE_ID_SUFFIX_PATTERN, c)]
     invalid = [c for c in header if c.startswith(("CG_", "CHG_", "CHH_")) and c not in features]
     if invalid:
         raise ValueError(f"invalid site identifiers: {invalid}")
@@ -116,7 +149,7 @@ def load_data(input_path, position_paths):
             if len(row) != 6:
                 raise ValueError(f"{context}: expected six columns in numbered position table")
             identifier, chrom, begin, finish = row[:4]
-            if not re.fullmatch(context + r"_\d+", identifier) or identifier in seen:
+            if not re.fullmatch(context + "_" + SITE_ID_SUFFIX_PATTERN, identifier) or identifier in seen:
                 raise ValueError(f"{context}: invalid or duplicate ID {identifier}")
             seen.add(identifier)
             start, end = int(begin), int(finish)
@@ -159,12 +192,19 @@ def summarize(raw, sites):
 
 
 def load_auditor(directory):
+    if not Path(directory / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {directory / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location("rca_profile_alignment", directory / "audit_panel_alignment.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load alignment auditor")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
@@ -371,24 +411,29 @@ def make_figure(summary, auditor, qa_dir, bin_size):
     fig.text(0.105, 22 / FIG_HEIGHT_MM, "\n".join(figure_caption), ha="left", va="top",
              fontsize=6.5, linespacing=1.4)
     fig.canvas.draw()
-    auditor.require_matplotlib_panel_alignment(fig,
-        tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
-    # Supply actual anchors because the auditor does not infer parenthesized labels.
-    manifest = auditor.matplotlib_layout_manifest(fig)
-    for panel, label in zip(manifest["panels"], panel_labels):
-        anchor = label.get_transform().transform(label.get_position())
-        anchor = fig.dpi_scale_trans.inverted().transform(anchor) * 72
-        panel["panel_label"] = label.get_text().strip("()")
-        panel["panel_label_anchor_pt"] = list(map(float, anchor))
-    alignment = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
-        gutter_tolerance_pt=1.5, require_panel_labels=True)
-    auditor.write_json_report(alignment, qa_dir / "alignment.json")
-    if auditor.exit_code(alignment, strict=True):
-        raise RuntimeError(auditor.render_text(alignment, strict=True))
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa_dir / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig,
+            tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
+        # Supply actual anchors because the auditor does not infer parenthesized labels.
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, label in zip(manifest["panels"], panel_labels):
+            anchor = label.get_transform().transform(label.get_position())
+            anchor = fig.dpi_scale_trans.inverted().transform(anchor) * 72
+            panel["panel_label"] = label.get_text().strip("()")
+            panel["panel_label_anchor_pt"] = list(map(float, anchor))
+        alignment = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
+            gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(alignment, qa_dir / "alignment.json")
+        if auditor.exit_code(alignment, strict=True):
+            raise RuntimeError(auditor.render_text(alignment, strict=True))
     return fig, records
 
 
 def run_audit(command, output):
+    if _skip_missing_qa_command(command, output):
+        return
     result = subprocess.run(command, text=True, capture_output=True)
     output.write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
@@ -416,8 +461,7 @@ def main(argv=None):
         print(json.dumps(dict(samples=sample_counts, sites=counts, raw_rows=len(raw), site_means=len(site_summary)), indent=2))
         return 0
     auditor = load_auditor(args.qa_tools)
-    if importlib.util.find_spec("fitz") is None:
-        raise RuntimeError("PDF collision QA requires PyMuPDF (fitz)")
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir = args.output_dir / f"{PREFIX}_QA"
     qa_dir.mkdir(exist_ok=True)
@@ -498,7 +542,7 @@ are retained in the QA folder; use sites/bins TSVs for original genomic position
                 ". Retained in source tables; omitted from means without imputation. "
                 "The figure reports valid sample counts in nonempty bins.\n")
     stem.with_suffix(".caption.md").write_text(caption, encoding="utf-8")
-    report = dict(status="automated_QA_PASS", visual_review="pending", panels=records,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), visual_review="pending", panels=records,
                   samples=sample_counts, sample_ids=data.Temperature.tolist(), site_counts=counts,
                   region_counts=sites.groupby(["context", "region"], observed=True).size().rename("n").reset_index().to_dict("records"),
                   source_rows=len(data), raw_rows=len(raw), mean_rows=len(summary),

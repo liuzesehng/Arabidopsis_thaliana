@@ -29,7 +29,7 @@ from matplotlib.patches import FancyArrowPatch, Rectangle
 PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKDIR = PROJECT / "list"
 DEFAULT_GFF = PROJECT.parent / "ref/Arabidopsis_thaliana/refgen/GCF_000001735.4_TAIR10.1_genomic.gff"
-QA_SCRIPTS = Path("/datapool/home/2023102768/.codex/skills/nature-figure/scripts")
+QA_SCRIPTS = Path(os.environ.get("NATURE_FIGURE_QA_DIR", "/datapool/home/2023102768/.agents/skills/nature-figure/scripts"))
 DEFAULT_DPI = 600
 SELECT_TOP_FRACTION = .50
 FLANK_BP = 0
@@ -39,6 +39,40 @@ BASE_COLORS = {"A": "#3182BD", "T": "#D95F0E", "C": "#31A354", "G": "#756BB1"}
 CONTEXT_COLORS = {"CG": "#6A3D9A", "CHG": "#1B9E77", "CHH": "#3182BD"}
 TF_IDS = {"LHY": "AT1G01060", "AGL22": "AT2G22540", "LCL5": "AT3G09600",
           "LCL1": "AT5G02840", "RVE1": "AT5G17300"}
+
+
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
 
 
 def read_table(path):
@@ -121,8 +155,6 @@ def normalize_motif(row):
     if len(result["matched_sequence"]) != result["motif_end"]-result["motif_start"]+1 or set(result["matched_sequence"]) - set(BASE_COLORS):
         raise ValueError(f"Invalid motif sequence: {row}")
     return result
-
-
 
 
 def load_motifs(workdir):
@@ -215,8 +247,6 @@ def load_data(workdir, gff):
     if not sites:
         raise ValueError("Empty SHAP methylation selection")
     return ranking, sites, groups, matches, load_gene(gff), counts
-
-
 
 
 def site_color(site):
@@ -317,8 +347,6 @@ def connector(fig, points, arrow=True):
                                       mutation_scale=6, lw=.65, color="#555555", shrinkA=0, shrinkB=0))
 
 
-
-
 def add_legend(fig):
     handles = [Line2D([], [], marker="*", color=color, markersize=7, markeredgewidth=0, lw=0)
                for color in CONTEXT_COLORS.values()]
@@ -329,15 +357,21 @@ def add_legend(fig):
     arrow_start, arrow_end = (.80, .65) if multi else (.93, .78)
     fig.add_artist(FancyArrowPatch((arrow_start, arrow_y), (arrow_end, arrow_y), transform=fig.transFigure,
                                   arrowstyle="-|>", mutation_scale=9, lw=.9, color="#333333"))
+    fig.text((arrow_start+arrow_end)/2, arrow_y+2.5/(fig.get_figheight()*72), "Transcription direction",
+             ha="center", va="bottom", fontsize=6, color="#333333")
     fig.text(.5, .016, "SHAP rank: top 50% of all model features. Motif overlap only; no flanking sites.",
              ha="center", va="center", fontsize=5.5, color="#555555")
 
 
-
-
 def render(family, records, sites, gene, out, dpi):
     sys.path.insert(0, str(QA_SCRIPTS))
-    from audit_panel_alignment import require_matplotlib_panel_alignment
+    try:
+        if not (QA_SCRIPTS / "audit_panel_alignment.py").is_file():
+            raise ImportError(f"Optional QA tool not found: {QA_SCRIPTS / 'audit_panel_alignment.py'}")
+        from audit_panel_alignment import require_matplotlib_panel_alignment
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        require_matplotlib_panel_alignment = _skip_alignment
     multi = len(records) > 1
     width_mm = 183
     height = 145 if multi else 80
@@ -448,6 +482,8 @@ def run_qa(prefix):
                        "--json-out", f"{prefix}.collision-audit.json", "--overlay-pdf", f"{prefix}.collision-audit.pdf"]),
     ]
     for name, cmd in commands:
+        if _skip_missing_qa_command(cmd, Path(f"{prefix}.{name}.txt")):
+            continue
         result = subprocess.run(cmd, capture_output=True, text=True)
         Path(f"{prefix}.{name}.txt").write_text(result.stdout+result.stderr, encoding="utf-8")
         if result.returncode:
@@ -486,7 +522,7 @@ def main():
             raise ValueError(f"TF annotation does not agree with requested family: {family}")
         prefix = render(family, records, sites, gene, out, args.dpi)
         run_qa(prefix)
-        print(f"Exported and audited: {prefix}", flush=True)
+        print(f"Exported: {prefix}; QA {'INCOMPLETE' if _OPTIONAL_QA_SKIPPED else 'PASS'}", flush=True)
     (out / "README.md").write_text(
         "# RCA motif-internal methylation colocalization by TF family\n\n"
         "Exactly two current figures are generated: MIKC_MADS (AGL22) and MYB_related (LHY, LCL5, LCL1, RVE1), "
@@ -519,14 +555,15 @@ def main():
         "blank margins are reserved for strand-end labels. Full methylation IDs are horizontal; stars remain "
         "at their exact coordinate and leaders are used only to keep text within its panel. "
         "The RCA NM_129531.3 seven-exon drawing stays at left, with solid-blue CDS and hollow UTRs. "
-        "The unlabelled left-pointing negative-strand arrow is below the methylation legend in the AGL22 figure; "
+        "The left-pointing negative-strand arrow, labelled Transcription direction directly above it, "
+        "is below the methylation legend in the AGL22 figure; "
         "in MYB_related it is in the gap below LHY/LCL5 and above RCA, clear of motif connectors. "
         "No family headings appear in the figures. MYB_related has LHY/LCL5 above "
         "the gene and LCL1/RVE1 below. Four independent nonintersecting connectors depart from distinct points on "
         "a single marker representing the overlapping motif intervals; no shared junctions or displaced loci are implied.\n\n"
         "MIKC_MADS is 183 × 80 mm; MYB_related is 183 × 145 mm. PDF/SVG retain editable text; PNG/TIFF default "
-        "to 600 dpi. The four MYB_related panels pass a 1.5 pt alignment gate; all final PDFs undergo glyph-size "
-        "and strict collision audits. Earlier outputs are retained separately under archive/.\n",
+        "to 600 dpi. Available external QA tools check 1.5 pt panel alignment, glyph-size "
+        "and strict collisions; missing tools are recorded as SKIPPED. Earlier outputs are retained separately under archive/.\n",
         encoding="utf-8")
 
 

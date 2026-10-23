@@ -45,6 +45,36 @@ SOURCE_TRAITS = ("total", "α", "β", "α/%", "β/%")
 METHOD = "two-sided exact Spearman pairing permutation (40320 permutations)"
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def stars(p):
     return "***" if p < .001 else "**" if p < .01 else "*" if p < .05 else ""
 
@@ -176,12 +206,19 @@ def compute_statistics(means):
 
 
 def load_alignment_tools(directory):
+    if not Path(directory / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {directory / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location("chh_tf_rca_alignment", directory / "audit_panel_alignment.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load alignment auditor")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
@@ -236,8 +273,11 @@ def make_figure(statistics, auditor, qa_dir):
     for note, bottom_mm in zip(notes, [15, 10.5, 6]):
         fig.text(10 / 180, bottom_mm / 124, note, fontsize=8, ha="left", va="baseline")
     fig.canvas.draw()
-    auditor.require_matplotlib_panel_alignment(fig, json_out=qa_dir / "alignment.json",
-        tolerance_pt=1.5, axes=[heatmap], panel_ids=["heatmap"], strict=True)
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa_dir / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig, json_out=qa_dir / "alignment.json",
+            tolerance_pt=1.5, axes=[heatmap], panel_ids=["heatmap"], strict=True)
     if matrix.shape != (7, 5) or len(heatmap.texts) != 35:
         raise AssertionError("expected exactly 35 annotated cells")
     for text, row in zip(heatmap.texts, statistics.itertuples(index=False)):
@@ -279,6 +319,8 @@ def sha256(path):
 
 
 def audit(command, destination):
+    if _skip_missing_qa_command(command, destination):
+        return
     result = subprocess.run(command, capture_output=True, text=True)
     destination.write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
@@ -307,8 +349,7 @@ def main(argv=None):
         print(statistics.to_string(index=False))
         return 0
     auditor = load_alignment_tools(args.qa_tools)
-    if importlib.util.find_spec("pymupdf") is None and importlib.util.find_spec("fitz") is None:
-        raise RuntimeError("NOT AUDITABLE: install PyMuPDF for PDF QA")
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir = args.output_dir / f"{args.prefix}_QA"
     qa_dir.mkdir(exist_ok=True)
@@ -331,7 +372,7 @@ def main(argv=None):
     Path(str(stem) + ".caption.md").write_text(build_caption(), encoding="utf-8")
     if any(sha256(path) != hashes[name] for name, path in inputs.items()):
         raise RuntimeError("input changed during execution")
-    report = dict(status="automated_QA_PASS", visual_review="pending", input_sha256=hashes,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), visual_review="pending", input_sha256=hashes,
                   script_sha256=sha256(__file__), parameters={k: str(v) for k, v in vars(args).items()},
                   provenance=provenance, temperature_groups=8, statistical_tests=35,
                   transform="identity before arithmetic mean", pairing="temperature means only",

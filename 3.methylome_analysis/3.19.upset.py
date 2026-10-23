@@ -93,6 +93,28 @@ FIGURE_HEIGHT_IN = FIGURE_HEIGHT_MM / 25.4
 DEFAULT_DPI = 600
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
 def configure_style() -> None:
     """Apply compact publication typography with editable vector text."""
     plt.rcParams.update(
@@ -699,22 +721,22 @@ def load_alignment_helper():
     directory = qa_scripts_directory()
     helper_path = directory / "audit_panel_alignment.py"
     if not helper_path.is_file():
-        raise RuntimeError(
-            "panel-alignment helper not found; set NATURE_FIGURE_QA_DIR to the "
-            "nature-figure scripts directory"
-        )
+        _skip_optional_qa("Optional panel-alignment helper not found")
+        return _skip_alignment
     sys.path.insert(0, str(directory))
     try:
         from audit_panel_alignment import require_matplotlib_panel_alignment
     except ImportError as exc:
-        raise RuntimeError(f"could not import panel-alignment helper: {exc}") from exc
+        _skip_optional_qa(str(exc))
+        return _skip_alignment
     return require_matplotlib_panel_alignment
 
 
 def run_pdf_text_audit(pdf_path: Path, report_path: Path, final_pdf_path: Path) -> None:
     script = qa_scripts_directory() / "audit_pdf_text.py"
     if not script.is_file():
-        raise RuntimeError("PDF text-audit helper not found")
+        _skip_optional_qa(f"Optional QA tool not found: {script}", report_path)
+        return
     completed = subprocess.run(
         [sys.executable, str(script), str(pdf_path), "--min-pt", "5", "--json"],
         check=False,
@@ -732,7 +754,8 @@ def run_pdf_text_audit(pdf_path: Path, report_path: Path, final_pdf_path: Path) 
 def run_collision_audit(pdf_path: Path, report_path: Path, final_pdf_path: Path) -> None:
     script = qa_scripts_directory() / "audit_figure_collisions.py"
     if not script.is_file():
-        raise RuntimeError("PDF collision-audit helper not found")
+        _skip_optional_qa(f"Optional QA tool not found: {script}", report_path)
+        return
     completed = subprocess.run(
         [
             sys.executable,
@@ -816,7 +839,7 @@ def export_outputs(
         write_table(intersections, intersections_path)
 
         require_matplotlib_panel_alignment = load_alignment_helper()
-        require_matplotlib_panel_alignment(
+        alignment_report = require_matplotlib_panel_alignment(
             fig,
             axes=list(axes),
             panel_ids=["a", "b", "c", "d"],
@@ -828,6 +851,10 @@ def export_outputs(
             require_panel_labels=True,
             strict=True,
         )
+        if alignment_report.get("verdict") == "SKIPPED":
+            # An unavailable auditor does not produce a diagnostic SVG overlay.
+            temporary_paths.remove(alignment_overlay_path)
+            final_paths.remove(output_dir / alignment_overlay_path.name)
 
         fig.savefig(pdf_path, format="pdf")
         fig.savefig(svg_path, format="svg")

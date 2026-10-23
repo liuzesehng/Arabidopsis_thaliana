@@ -84,6 +84,28 @@ FIGURE_HEIGHT_IN = 180.0 / 25.4
 MIN_FONT_PT = 5.0
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
 def configure_style() -> None:
     """Apply a restrained publication style with editable vector text."""
     plt.rcParams.update(
@@ -976,23 +998,21 @@ def qa_scripts_directory(argument: Path | None) -> Path:
         directory = Path(os.environ["NATURE_FIGURE_QA_DIR"])
     else:
         directory = Path.home() / ".codex" / "skills" / "nature-figure" / "scripts"
-    if not directory.is_dir():
-        raise RuntimeError(
-            "Figure QA directory not found; provide --qa-tools-dir or set "
-            "NATURE_FIGURE_QA_DIR"
-        )
+    # A missing QA directory is allowed; individual checks record SKIPPED.
     return directory
 
 
 def load_alignment_helper(qa_directory: Path):
     helper = qa_directory / "audit_panel_alignment.py"
     if not helper.is_file():
-        raise RuntimeError(f"Panel-alignment helper not found in {qa_directory}")
+        _skip_optional_qa("Optional panel-alignment helper not found")
+        return _skip_alignment
     sys.path.insert(0, str(qa_directory))
     try:
         from audit_panel_alignment import require_matplotlib_panel_alignment
     except ImportError as exc:
-        raise RuntimeError(f"Could not import panel-alignment helper: {exc}") from exc
+        _skip_optional_qa(str(exc))
+        return _skip_alignment
     return require_matplotlib_panel_alignment
 
 
@@ -1009,53 +1029,55 @@ def run_rendered_qa(pdf_path: Path, qa_directory: Path, stem: str) -> list[Path]
     collision_path = pdf_path.with_name(f"{stem}.collision-audit.json")
     collision_script = qa_directory / "audit_figure_collisions.py"
     if not collision_script.is_file():
-        raise RuntimeError(f"Collision-audit helper not found in {qa_directory}")
-    collision = subprocess.run(
-        [
-            sys.executable,
-            str(collision_script),
-            str(pdf_path),
-            "--json-out",
-            str(collision_path),
-            "--strict",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if collision.returncode != 0:
-        raise subprocess_failure("Strict rendered-PDF collision audit failed", collision)
-    collision_report = json.loads(collision_path.read_text(encoding="utf-8"))
-    if collision_report.get("verdict") != "PASS":
-        raise RuntimeError(
-            f"Collision audit did not pass: {collision_report.get('verdict', 'unknown')}"
+        _skip_optional_qa(f"Optional QA tool not found: {collision_script}", collision_path)
+    else:
+        collision = subprocess.run(
+            [
+                sys.executable,
+                str(collision_script),
+                str(pdf_path),
+                "--json-out",
+                str(collision_path),
+                "--strict",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
         )
+        if collision.returncode != 0:
+            raise subprocess_failure("Strict rendered-PDF collision audit failed", collision)
+        collision_report = json.loads(collision_path.read_text(encoding="utf-8"))
+        if collision_report.get("verdict") != "PASS":
+            raise RuntimeError(
+                f"Collision audit did not pass: {collision_report.get('verdict', 'unknown')}"
+            )
 
     text_path = pdf_path.with_name(f"{stem}.pdf-text-audit.json")
     text_script = qa_directory / "audit_pdf_text.py"
     if not text_script.is_file():
-        raise RuntimeError(f"PDF-text audit helper not found in {qa_directory}")
-    text_audit = subprocess.run(
-        [
-            sys.executable,
-            str(text_script),
-            str(pdf_path),
-            "--min-pt",
-            str(MIN_FONT_PT),
-            "--json",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if text_audit.returncode != 0:
-        raise subprocess_failure("Rendered PDF text audit failed", text_audit)
-    text_report = json.loads(text_audit.stdout)
-    if not text_report.get("auditable") or text_report.get("below_minimum_count") != 0:
-        raise RuntimeError("Rendered PDF contains text below the 5 pt floor")
-    text_path.write_text(
-        json.dumps(text_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+        _skip_optional_qa(f"Optional QA tool not found: {text_script}", text_path)
+    else:
+        text_audit = subprocess.run(
+            [
+                sys.executable,
+                str(text_script),
+                str(pdf_path),
+                "--min-pt",
+                str(MIN_FONT_PT),
+                "--json",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if text_audit.returncode != 0:
+            raise subprocess_failure("Rendered PDF text audit failed", text_audit)
+        text_report = json.loads(text_audit.stdout)
+        if not text_report.get("auditable") or text_report.get("below_minimum_count") != 0:
+            raise RuntimeError("Rendered PDF contains text below the 5 pt floor")
+        text_path.write_text(
+            json.dumps(text_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     return [collision_path, text_path]
 
 

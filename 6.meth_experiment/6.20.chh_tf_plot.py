@@ -23,7 +23,7 @@ from matplotlib.patches import Rectangle, FancyArrowPatch
 PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKDIR = PROJECT / "list"
 DEFAULT_GFF = PROJECT.parent / "ref/Arabidopsis_thaliana/refgen/GCF_000001735.4_TAIR10.1_genomic.gff"
-QA_SCRIPTS = Path("/datapool/home/2023102768/.codex/skills/nature-figure/scripts")
+QA_SCRIPTS = Path("/datapool/home/2023102768/.agents/skills/nature-figure/scripts")
 DEFAULT_DPI = 600
 TRANSCRIPT = "rna-NM_129531.3"
 BLUE = "#2997FF"
@@ -31,6 +31,40 @@ CHH_BLUE = "#3182BD"
 BASE_COLORS = {"A": "#3182BD", "T": "#D95F0E", "C": "#31A354", "G": "#756BB1"}
 WINDOW = (16574872, 16574890)
 ORDER = ["LHY", "EPR1", "RVE7L", "RVE5", "LCL1", "RVE1", "RVE6"]
+
+
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
 
 
 def read_table(path):
@@ -50,7 +84,7 @@ def load_data(workdir):
     sites = {}
     with (workdir / "meth_experiment/CHH.CV.before.numbered.tsv").open() as handle:
         for line in handle:
-            fields = line.rstrip().split("\t")
+            fields = line.rstrip("\r\n").split("\t")
             if len(fields) != 6:
                 raise ValueError("Expected six columns in numbered CHH table")
             site, chrom, start, end, _, _ = fields
@@ -250,12 +284,26 @@ def connect_strands(fig, gene_ax, anchor, axes, records):
 
 def render(group, records, gene, out, dpi):
     sys.path.insert(0, str(QA_SCRIPTS))
-    from audit_panel_alignment import require_matplotlib_panel_alignment
+    try:
+        if not (QA_SCRIPTS / "audit_panel_alignment.py").is_file():
+            raise ImportError(f"Optional QA tool not found: {QA_SCRIPTS / 'audit_panel_alignment.py'}")
+        from audit_panel_alignment import require_matplotlib_panel_alignment
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        require_matplotlib_panel_alignment = _skip_alignment
     multi = group == "non_coexpressed"
     width_inches, height_inches = 183/25.4, (145 if multi else 80)/25.4
     fig = plt.figure(figsize=(width_inches, height_inches))
     fig.legend([Line2D([], [], marker="*", color=CHH_BLUE, markersize=7, lw=0)], ["CHH"],
                loc="center right", bbox_to_anchor=(.96, .96), fontsize=7, frameon=False)
+    arrow_y = .555 if multi else .82
+    arrow_start, arrow_end = (.80, .65) if multi else (.93, .78)
+    fig.add_artist(FancyArrowPatch((arrow_start, arrow_y), (arrow_end, arrow_y),
+                                  transform=fig.transFigure, arrowstyle="-|>",
+                                  mutation_scale=9, lw=.9, color="#333333"))
+    fig.text((arrow_start+arrow_end)/2, arrow_y+3/(height_inches*72),
+             "Transcription direction", ha="center", va="bottom", fontsize=6.5,
+             color="#333333")
     gene_ax = fig.add_axes([.045, .46, .91, .10] if multi else [.045, .65, .91, .16])
     anchor = draw_gene(gene_ax, gene, records)
     axes = []
@@ -302,6 +350,8 @@ def run_qa(prefix):
         ("collision", [sys.executable, str(QA_SCRIPTS / "audit_figure_collisions.py"), pdf, "--strict", "--json-out", f"{prefix}.collision-audit.json", "--overlay-pdf", f"{prefix}.collision-audit.pdf"]),
     ]
     for name, command in commands:
+        if _skip_missing_qa_command(command, Path(f"{prefix}.{name}.txt")):
+            continue
         result = subprocess.run(command, capture_output=True, text=True)
         Path(f"{prefix}.{name}.txt").write_text(result.stdout + result.stderr)
         if result.returncode:
@@ -341,7 +391,7 @@ def main():
     for group, records in groups.items():
         prefix = render(group, records, gene, out, args.dpi)
         run_qa(prefix)
-        print(f"Exported and audited: {prefix}")
+        print(f"Exported: {prefix}; QA {'INCOMPLETE' if _OPTIONAL_QA_SKIPPED else 'PASS'}")
     (out / "README.md").write_text(
         "# RCA motif and CHH spatial maps\n\n"
         "These figures show predicted motif overlap with CHH_1651, not experimental TF binding or causal regulation. "
@@ -360,10 +410,12 @@ def main():
         "with a compact 5 pt square overview marker for legibility (not to genomic scale); "
         "local motif panels retain exact coordinates. Exon boxes have a consistent 8 pt height; "
         "blue connecting lines occur only in introns and flanking DNA, never inside hollow UTRs, and have no arrowheads. "
+        "A separate dark-gray left-pointing arrow indicates RCA negative-strand transcription: below the legend "
+        "in the coexpressed figure and above the gene overview in the non-coexpressed figure. "
         "Black connectors meet the top or bottom marker surface without crossing its interior; elbow segments join without shrink gaps. "
         "the shared connector links overlapping hits without shifting genomic coordinates.\n\n"
         "PDF/SVG retain editable text; PNG/TIFF are 600 dpi by default. "
-        "Alignment tolerance is 1.5 pt. Final PDF text and strict collision audits run on every export. "
+        "Alignment tolerance is 1.5 pt. Available external PDF text and collision audits run on export; missing tools are recorded as SKIPPED. "
         "Coexpressed motif alignment is not applicable because it has one local panel. "
         "The coexpressed figure is 183 x 80 mm. The non-coexpressed figure is 183 x 145 mm with a merged plus-strand panel above RCA and "
         "a merged minus-strand panel below RCA. Overlapping bases must agree before merging; "

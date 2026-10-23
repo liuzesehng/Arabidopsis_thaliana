@@ -494,30 +494,43 @@ def qa_scripts_directory() -> Path:
     )
 
 
-def load_alignment_helper():
+def write_skipped_audit(json_path: Path, reason: str) -> None:
+    """Record unavailable optional QA without claiming the figure passed."""
+    print(f"WARNING: {reason}; skipping optional audit.", file=sys.stderr)
+    json_path.write_text(
+        json.dumps({"verdict": "SKIPPED", "reason": reason}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_alignment_helper(json_path: Path):
+    """Load optional alignment QA, recording a skip when unavailable."""
     directory = qa_scripts_directory()
     helper_path = directory / "audit_panel_alignment.py"
     if not helper_path.is_file():
-        raise RuntimeError(
-            "panel-alignment helper not found; set NATURE_FIGURE_QA_DIR to the "
-            "directory containing audit_panel_alignment.py"
+        write_skipped_audit(
+            json_path, f"panel-alignment helper not found: {helper_path}"
         )
+        return None
     sys.path.insert(0, str(directory))
     try:
         from audit_panel_alignment import require_matplotlib_panel_alignment
     except ImportError as exc:
-        raise RuntimeError(f"could not import panel-alignment helper: {exc}") from exc
+        write_skipped_audit(json_path, f"could not import panel-alignment helper: {exc}")
+        return None
+    finally:
+        sys.path.pop(0)
     return require_matplotlib_panel_alignment
 
 
 def run_collision_audit(pdf_path: Path, json_path: Path) -> None:
-    """Require a strict rendered-PDF collision audit before publishing outputs."""
+    """Run strict rendered-PDF collision QA when its optional script exists."""
     audit_script = qa_scripts_directory() / "audit_figure_collisions.py"
     if not audit_script.is_file():
-        raise RuntimeError(
-            "PDF collision-audit helper not found; set NATURE_FIGURE_QA_DIR "
-            "to the nature-figure scripts directory"
+        write_skipped_audit(
+            json_path, f"PDF collision-audit helper not found: {audit_script}"
         )
+        return
     completed = subprocess.run(
         [
             sys.executable,
@@ -562,7 +575,7 @@ def export_outputs(
     basename: str,
     dpi: int,
 ) -> list[Path]:
-    """Stage, audit, and atomically publish the complete output bundle."""
+    """Stage, run available optional audits, and publish the output bundle."""
     output_dir.mkdir(parents=True, exist_ok=True)
     suffixes = (
         ".pdf",
@@ -592,21 +605,22 @@ def export_outputs(
             collision_path,
         ) = temp_paths
 
-        require_matplotlib_panel_alignment = load_alignment_helper()
-        alignment_report = require_matplotlib_panel_alignment(
-            fig,
-            axes=[ax],
-            panel_ids=["a"],
-            json_out=alignment_path,
-            tolerance_pt=1.5,
-            gutter_tolerance_pt=1.5,
-            require_panel_labels=False,
-            strict=True,
-        )
-        if alignment_report.get("verdict") != "NOT APPLICABLE":
-            raise RuntimeError(
-                "single-panel alignment audit did not return NOT APPLICABLE"
+        require_matplotlib_panel_alignment = load_alignment_helper(alignment_path)
+        if require_matplotlib_panel_alignment is not None:
+            alignment_report = require_matplotlib_panel_alignment(
+                fig,
+                axes=[ax],
+                panel_ids=["a"],
+                json_out=alignment_path,
+                tolerance_pt=1.5,
+                gutter_tolerance_pt=1.5,
+                require_panel_labels=False,
+                strict=True,
             )
+            if alignment_report.get("verdict") != "NOT APPLICABLE":
+                raise RuntimeError(
+                    "single-panel alignment audit did not return NOT APPLICABLE"
+                )
 
         write_tsv(gene_means, gene_means_path)
         write_tsv(summary, summary_path)

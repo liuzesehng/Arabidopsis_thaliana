@@ -41,6 +41,36 @@ GENE = 'AT1G02065'
 PERMUTATIONS = np.array(list(itertools.permutations(range(8))), dtype=np.int16)
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def read_tsv(path):
     with Path(path).open(encoding='utf-8-sig', newline='') as h:
         rows = list(csv.reader(h, delimiter='\t'))
@@ -160,10 +190,17 @@ def summarize(spl, rca):
 
 
 def load_auditor():
+    if not Path(QA_TOOLS / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {QA_TOOLS / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location('spl8_alignment', QA_TOOLS / 'audit_panel_alignment.py')
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
@@ -230,25 +267,30 @@ def make_figure(groups, points, stats, qa):
         fig.text(.5, y, caption, ha='center', fontsize=6)
     fig.canvas.draw()
     auditor = load_auditor()
-    auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
-        gutter_tolerance_pt=1.5, strict=True)
-    # The automatic label detector only recognizes bare letters. Measure the
-    # displayed parenthesized labels explicitly for the same alignment gate.
-    manifest = auditor.matplotlib_layout_manifest(fig)
-    for panel, label in zip(manifest['panels'], panel_labels):
-        xy = label.get_transform().transform(label.get_position())
-        anchor = fig.dpi_scale_trans.inverted().transform(xy) * 72
-        panel['panel_label'] = label.get_text()
-        panel['panel_label_anchor_pt'] = list(map(float, anchor))
-    report = auditor.audit_layout_manifest(manifest,
-        tolerance_pt=1.5, gutter_tolerance_pt=1.5, require_panel_labels=True)
-    auditor.write_json_report(report, qa / 'alignment.json')
-    if auditor.exit_code(report, strict=True):
-        raise RuntimeError(auditor.render_text(report, strict=True))
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
+            gutter_tolerance_pt=1.5, strict=True)
+        # The automatic label detector only recognizes bare letters. Measure the
+        # displayed parenthesized labels explicitly for the same alignment gate.
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, label in zip(manifest['panels'], panel_labels):
+            xy = label.get_transform().transform(label.get_position())
+            anchor = fig.dpi_scale_trans.inverted().transform(xy) * 72
+            panel['panel_label'] = label.get_text()
+            panel['panel_label_anchor_pt'] = list(map(float, anchor))
+        report = auditor.audit_layout_manifest(manifest,
+            tolerance_pt=1.5, gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(report, qa / 'alignment.json')
+        if auditor.exit_code(report, strict=True):
+            raise RuntimeError(auditor.render_text(report, strict=True))
     return fig, audit_rows
 
 
 def run_audit(name, command, qa):
+    if _skip_missing_qa_command([sys.executable, *map(str, command)], qa / name):
+        return
     result = subprocess.run([sys.executable, *map(str, command)], capture_output=True, text=True)
     (qa / name).write_text(result.stdout + result.stderr, encoding='utf-8')
     if result.returncode:
@@ -399,16 +441,19 @@ def export_quadratic(groups, points, output_dir):
         fig.text(.5,y,text,ha='center',fontsize=6)
     fig.canvas.draw()
     auditor = load_auditor()
-    auditor.require_matplotlib_panel_alignment(fig,tolerance_pt=1.5,gutter_tolerance_pt=1.5,strict=True)
-    manifest=auditor.matplotlib_layout_manifest(fig)
-    for panel,label in zip(manifest['panels'],labels):
-        xy=label.get_transform().transform(label.get_position())
-        panel['panel_label']=label.get_text()
-        panel['panel_label_anchor_pt']=list(map(float,fig.dpi_scale_trans.inverted().transform(xy)*72))
-    report=auditor.audit_layout_manifest(manifest,tolerance_pt=1.5,gutter_tolerance_pt=1.5,require_panel_labels=True)
-    auditor.write_json_report(report,qa/'alignment.json')
-    if auditor.exit_code(report,strict=True):
-        raise RuntimeError(auditor.render_text(report,strict=True))
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig,tolerance_pt=1.5,gutter_tolerance_pt=1.5,strict=True)
+        manifest=auditor.matplotlib_layout_manifest(fig)
+        for panel,label in zip(manifest['panels'],labels):
+            xy=label.get_transform().transform(label.get_position())
+            panel['panel_label']=label.get_text()
+            panel['panel_label_anchor_pt']=list(map(float,fig.dpi_scale_trans.inverted().transform(xy)*72))
+        report=auditor.audit_layout_manifest(manifest,tolerance_pt=1.5,gutter_tolerance_pt=1.5,require_panel_labels=True)
+        auditor.write_json_report(report,qa/'alignment.json')
+        if auditor.exit_code(report,strict=True):
+            raise RuntimeError(auditor.render_text(report,strict=True))
     stem=output_dir/prefix
     try:
         fig.savefig(stem.with_suffix('.pdf'))
@@ -435,7 +480,7 @@ def export_quadratic(groups, points, output_dir):
         'The proportions are complementary and do not constitute independent validation. This small-sample, exploratory model was chosen after visual inspection.\n'
         'Turning points are reported on the transformed expression scale; no curve is extrapolated beyond observed x.\n'
         'Positive/negative curvature with an interior vertex describes a fitted U/inverted U; it does not establish a regulatory mechanism.\n',encoding='utf-8')
-    summary=dict(status='automated_QA_PASS',figure_size_mm=[183,125],raster_dpi=600,
+    summary=dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"),figure_size_mm=[183,125],raster_dpi=600,
                  panels=2,temperature_means_per_panel=8,rca_replicates_per_panel=24,
                  x_ticks_per_panel=8, tick_labels='SPL8 mean only; 45-degree labels at the same eight categorical positions as the first figure',
                  model='quadratic OLS; measured SPL8 means; equal weight per temperature',
@@ -458,8 +503,7 @@ def main(argv=None):
         print('PASS: SPL8 and RCA each have 24 observations, eight temperatures, three replicates per temperature')
         return 0
     groups, points, stats = summarize(spl, rca)
-    if importlib.util.find_spec('fitz') is None:
-        raise RuntimeError('PyMuPDF is required for PDF collision QA; NOT AUDITABLE')
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa = args.output_dir / f'{PREFIX}_QA'
     qa.mkdir(exist_ok=True)
@@ -479,7 +523,7 @@ def main(argv=None):
     finally:
         plt.close(fig)
     pd.DataFrame(panels).to_csv(qa / 'panels.tsv', sep='\t', index=False)
-    report = dict(status='automated_QA_PASS', panels=panels, figure_size_mm=[183,150], raster_dpi=600,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), panels=panels, figure_size_mm=[183,150], raster_dpi=600,
                   excluded_observations=0, sample_pairing='temperature only; no individual pairing inferred',
                   transforms='ln1p each expression replicate before mean and sample SD; percentages unchanged',
                   spearman='8 means; average tied ranks; exhaustive 40320 two-sided pairing permutations',
@@ -507,7 +551,7 @@ def main(argv=None):
         'Source, alignment, PDF text and collision audit results accompany this report.\n', encoding='utf-8')
     export_quadratic(groups, points, args.output_dir)
     print(stats[['metric','rho','p','q_bh']].to_string(index=False))
-    print(f'Exported PDF/SVG/PNG/TIFF to {args.output_dir}; automated QA PASS')
+    print(f'Exported PDF/SVG/PNG/TIFF to {args.output_dir}; automated QA {"INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "PASS"}')
     return 0
 
 

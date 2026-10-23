@@ -79,6 +79,28 @@ PAIRWISE_COLUMNS = (
 )
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
 def configure_style() -> None:
     plt.rcParams.update(
         {
@@ -766,24 +788,22 @@ def load_alignment_helper():
     directory = qa_scripts_directory()
     helper_path = directory / "audit_panel_alignment.py"
     if not helper_path.is_file():
-        raise RuntimeError(
-            "Panel-alignment helper not found; set NATURE_FIGURE_QA_DIR to the directory "
-            "containing audit_panel_alignment.py"
-        )
+        _skip_optional_qa("Optional panel-alignment helper not found")
+        return _skip_alignment
     sys.path.insert(0, str(directory))
     try:
         from audit_panel_alignment import require_matplotlib_panel_alignment
     except ImportError as exc:
-        raise RuntimeError(f"Could not import panel-alignment helper: {exc}") from exc
+        _skip_optional_qa(str(exc))
+        return _skip_alignment
     return require_matplotlib_panel_alignment
 
 
 def run_collision_audit(pdf_path: Path, json_path: Path) -> None:
     audit_script = qa_scripts_directory() / "audit_figure_collisions.py"
     if not audit_script.is_file():
-        raise RuntimeError(
-            "PDF collision-audit helper not found; set NATURE_FIGURE_QA_DIR to the nature-figure scripts directory"
-        )
+        _skip_optional_qa(f"Optional QA tool not found: {audit_script}", json_path)
+        return
     completed = subprocess.run(
         [
             sys.executable,
@@ -843,12 +863,16 @@ def export_figure(
     )
     plt.close(figure)
     run_collision_audit(pdf_path, collision_path)
-    text_check = subprocess.run(
-        [sys.executable, str(qa_scripts_directory() / "audit_pdf_text.py"),
-         str(pdf_path), "--min-pt", "5", "--json"],
-        capture_output=True, text=True, check=True,
-    )
-    text_path.write_text(text_check.stdout, encoding="utf-8")
+    text_script = qa_scripts_directory() / "audit_pdf_text.py"
+    if not text_script.is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {text_script}", text_path)
+    else:
+        text_check = subprocess.run(
+            [sys.executable, str(qa_scripts_directory() / "audit_pdf_text.py"),
+             str(pdf_path), "--min-pt", "5", "--json"],
+            capture_output=True, text=True, check=True,
+        )
+        text_path.write_text(text_check.stdout, encoding="utf-8")
     return [png_path, pdf_path, svg_path, tiff_path, alignment_path, collision_path, text_path]
 
 

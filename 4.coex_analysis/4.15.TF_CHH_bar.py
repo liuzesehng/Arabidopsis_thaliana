@@ -49,6 +49,36 @@ REQUIRED = set(MOTIF_KEY + [
 ])
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def require_columns(df: pd.DataFrame, columns: set[str], source: str) -> None:
     missing = columns.difference(df.columns)
     if missing:
@@ -201,10 +231,17 @@ def load_historical(base_dir: Path) -> tuple[pd.DataFrame, tuple[pd.DataFrame, .
 
 def draw_figure(tables: tuple[pd.DataFrame, ...], prefix: Path, qa_tools: Path) -> None:
     sys.path.insert(0, str(qa_tools))
-    from audit_panel_alignment import (
-        require_matplotlib_panel_alignment, matplotlib_layout_manifest,
-        audit_layout_manifest, write_json_report,
-    )
+    alignment_available = (qa_tools / "audit_panel_alignment.py").is_file()
+    try:
+        if not alignment_available:
+            raise ImportError(f"Optional QA tool not found: {qa_tools / 'audit_panel_alignment.py'}")
+        from audit_panel_alignment import (
+            require_matplotlib_panel_alignment, matplotlib_layout_manifest,
+            audit_layout_manifest, write_json_report,
+        )
+    except ImportError as exc:
+        _skip_optional_qa(str(exc))
+        alignment_available = False
 
     plt.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans"],
@@ -278,20 +315,23 @@ def draw_figure(tables: tuple[pd.DataFrame, ...], prefix: Path, qa_tools: Path) 
                handlelength=1.4, columnspacing=1.8)
 
     fig.canvas.draw()
-    require_matplotlib_panel_alignment(fig, strict=True, tolerance_pt=1.5,
-                                        gutter_tolerance_pt=1.5, panel_ids=list("abc"))
-    # The general detector recognizes bare letters; measure parenthesized labels explicitly.
-    manifest = matplotlib_layout_manifest(fig, panel_ids=list("abc"))
-    for panel, artist in zip(manifest["panels"], label_artists):
-        display_xy = artist.get_transform().transform(artist.get_position())
-        panel["panel_label"] = panel["id"]
-        panel["panel_label_anchor_pt"] = (fig.dpi_scale_trans.inverted().transform(display_xy) * 72).tolist()
-    report = audit_layout_manifest(manifest, tolerance_pt=1.5, gutter_tolerance_pt=1.5,
-                                   require_panel_labels=True)
-    write_json_report(report, f"{prefix}.alignment.json")
-    if report["summary"]["fail"] or report["summary"]["warn"]:
-        plt.close(fig)
-        raise ValueError("Panel alignment failed; see alignment JSON")
+    if not alignment_available:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", f"{prefix}.alignment.json")
+    else:
+        require_matplotlib_panel_alignment(fig, strict=True, tolerance_pt=1.5,
+                                            gutter_tolerance_pt=1.5, panel_ids=list("abc"))
+        # The general detector recognizes bare letters; measure parenthesized labels explicitly.
+        manifest = matplotlib_layout_manifest(fig, panel_ids=list("abc"))
+        for panel, artist in zip(manifest["panels"], label_artists):
+            display_xy = artist.get_transform().transform(artist.get_position())
+            panel["panel_label"] = panel["id"]
+            panel["panel_label_anchor_pt"] = (fig.dpi_scale_trans.inverted().transform(display_xy) * 72).tolist()
+        report = audit_layout_manifest(manifest, tolerance_pt=1.5, gutter_tolerance_pt=1.5,
+                                       require_panel_labels=True)
+        write_json_report(report, f"{prefix}.alignment.json")
+        if report["summary"]["fail"] or report["summary"]["warn"]:
+            plt.close(fig)
+            raise ValueError("Panel alignment failed; see alignment JSON")
     # Retain the exact physical canvas; tight cropping would change its dimensions.
     fig.savefig(f"{prefix}.pdf")
     fig.savefig(f"{prefix}.svg")
@@ -308,6 +348,8 @@ def run_pdf_qa(prefix: Path, qa_tools: Path) -> None:
           "--json-out", f"{prefix}.collision-audit.json", "--strict"], None),
     ]
     for command, capture_path in commands:
+        if _skip_missing_qa_command(command, capture_path):
+            continue
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if capture_path:
             Path(capture_path).write_text(result.stdout, encoding="utf-8")
@@ -324,9 +366,7 @@ def main() -> None:
     args = parser.parse_args()
     if Path(args.output_prefix).name != args.output_prefix or args.output_prefix in {"", ".", ".."}:
         parser.error("--output-prefix must be a filename stem")
-    for script in ["audit_panel_alignment.py", "audit_pdf_text.py", "audit_figure_collisions.py"]:
-        if not (args.qa_tools / script).is_file():
-            parser.error(f"QA tool missing: {script}; specify --qa-tools")
+    # External QA tools are optional; each missing check is recorded as SKIPPED.
     hits, tables, provenance = load_historical(args.base_dir)
     output_dir = args.output_dir or args.base_dir / "TF_CHH"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -336,7 +376,8 @@ def main() -> None:
     for table, name in zip(tables, ["panel-a-counts", "panel-b-points", "panel-c-features"]):
         table.to_csv(f"{prefix}.{name}.tsv", sep="\t", index=False)
     hits.to_csv(f"{prefix}.source-hits.tsv", sep="\t", index=False)
-    provenance["automated_qa"] = "PASS: alignment, PDF text >= 5 pt, strict collision audit"
+    provenance["automated_qa"] = ("INCOMPLETE: optional checks skipped" if _OPTIONAL_QA_SKIPPED
+                                  else "PASS: alignment, PDF text >= 5 pt, strict collision audit")
     provenance["visual_review"] = "Separate final-size review required; not inferred from automated checks"
     Path(f"{prefix}.provenance.json").write_text(json.dumps(provenance, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     caption = (

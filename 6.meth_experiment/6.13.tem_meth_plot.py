@@ -40,6 +40,36 @@ BLUE = "#2F6DAE"
 CONTROL = "#E8E8E8"
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def load_data(path: Path) -> pd.DataFrame:
     """Validate the sample design and selected sites without changing source data."""
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -136,29 +166,39 @@ def summarize(data):
 
 
 def load_auditor(directory):
+    if not Path(directory / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {directory / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location("temperature_panel_alignment", directory / "audit_panel_alignment.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("cannot load panel alignment auditor")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
 def check_alignment(fig, labels, auditor, output):
-    auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
-    # Explicit anchors preserve the requested parenthesized labels in the audit.
-    manifest = auditor.matplotlib_layout_manifest(fig)
-    for panel, label in zip(manifest["panels"], labels):
-        anchor = label.get_transform().transform(label.get_position())
-        anchor = fig.dpi_scale_trans.inverted().transform(anchor) * 72
-        panel["panel_label"] = label.get_text().strip("()")
-        panel["panel_label_anchor_pt"] = list(map(float, anchor))
-    report = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
-                                           gutter_tolerance_pt=1.5, require_panel_labels=True)
-    auditor.write_json_report(report, output)
-    if auditor.exit_code(report, strict=True):
-        raise RuntimeError(auditor.render_text(report, strict=True))
+    if auditor is None:
+        return _skip_optional_qa("audit_panel_alignment.py is unavailable", output)
+    else:
+        auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
+        # Explicit anchors preserve the requested parenthesized labels in the audit.
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, label in zip(manifest["panels"], labels):
+            anchor = label.get_transform().transform(label.get_position())
+            anchor = fig.dpi_scale_trans.inverted().transform(anchor) * 72
+            panel["panel_label"] = label.get_text().strip("()")
+            panel["panel_label_anchor_pt"] = list(map(float, anchor))
+        report = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
+                                               gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(report, output)
+        if auditor.exit_code(report, strict=True):
+            raise RuntimeError(auditor.render_text(report, strict=True))
 
 
 def caption_lines(groups):
@@ -238,6 +278,8 @@ def make_figure(points, groups, statistics, auditor, qa_dir):
 
 
 def run_audit(command, output):
+    if _skip_missing_qa_command(command, output):
+        return
     result = subprocess.run(command, capture_output=True, text=True)
     output.write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
@@ -257,8 +299,7 @@ def main(argv=None):
         return 0
     points, groups, statistics = summarize(data)
     auditor = load_auditor(args.qa_tools)
-    if importlib.util.find_spec("fitz") is None:
-        raise RuntimeError("NOT AUDITABLE: PDF collision QA requires PyMuPDF (fitz)")
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir = args.output_dir / f"{PREFIX}_QA"
     qa_dir.mkdir(exist_ok=True)
@@ -289,7 +330,7 @@ def main(argv=None):
                 "These descriptive associations do not establish causality.\n")
     stem.with_suffix(".caption.md").write_text(caption, encoding="utf-8")
     pd.DataFrame(panel_records).to_csv(qa_dir / "panels.tsv", sep="\t", index=False)
-    report = dict(status="automated_QA_PASS", panels=panel_records,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), panels=panel_records,
                   input_sha256=hashlib.sha256(args.input.read_bytes()).hexdigest(),
                   selected_columns=list(FEATURES), source_sample_rows=len(data),
                   missing_measurements=points[points.missing][["feature", "sample", "temperature"]].to_dict("records"),

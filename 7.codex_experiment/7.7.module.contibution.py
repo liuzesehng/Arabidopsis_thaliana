@@ -68,6 +68,28 @@ FIGURE_WIDTH_IN = FIGURE_WIDTH_MM / 25.4
 FIGURE_HEIGHT_IN = FIGURE_HEIGHT_MM / 25.4
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_alignment(*args, json_out=None, **kwargs):
+    return _skip_optional_qa("audit_panel_alignment.py is unavailable", json_out)
+
+
 def configure_style() -> None:
     """Apply a compact, publication-oriented Matplotlib style."""
     plt.rcParams.update(
@@ -545,15 +567,14 @@ def load_alignment_helper():
     directory = qa_scripts_directory()
     helper_path = directory / "audit_panel_alignment.py"
     if not helper_path.is_file():
-        raise RuntimeError(
-            "panel-alignment helper not found; set NATURE_FIGURE_QA_DIR to the "
-            "directory containing audit_panel_alignment.py"
-        )
+        _skip_optional_qa("Optional panel-alignment helper not found")
+        return _skip_alignment
     sys.path.insert(0, str(directory))
     try:
         from audit_panel_alignment import require_matplotlib_panel_alignment
     except ImportError as exc:
-        raise RuntimeError(f"could not import panel-alignment helper: {exc}") from exc
+        _skip_optional_qa(str(exc))
+        return _skip_alignment
     return require_matplotlib_panel_alignment
 
 
@@ -561,10 +582,8 @@ def run_pdf_text_audit(pdf_path: Path, json_path: Path) -> None:
     """Require every rendered PDF text run to be at least 5 pt."""
     audit_script = qa_scripts_directory() / "audit_pdf_text.py"
     if not audit_script.is_file():
-        raise RuntimeError(
-            "PDF text-audit helper not found; set NATURE_FIGURE_QA_DIR to the "
-            "nature-figure scripts directory"
-        )
+        _skip_optional_qa(f"Optional QA tool not found: {audit_script}", json_path)
+        return
     completed = subprocess.run(
         [
             sys.executable,
@@ -598,10 +617,8 @@ def run_collision_audit(pdf_path: Path, json_path: Path) -> None:
     """Require a strict rendered-PDF collision audit."""
     audit_script = qa_scripts_directory() / "audit_figure_collisions.py"
     if not audit_script.is_file():
-        raise RuntimeError(
-            "PDF collision-audit helper not found; set NATURE_FIGURE_QA_DIR to the "
-            "nature-figure scripts directory"
-        )
+        _skip_optional_qa(f"Optional QA tool not found: {audit_script}", json_path)
+        return
     completed = subprocess.run(
         [
             sys.executable,
@@ -685,9 +702,9 @@ def export_outputs(
             require_panel_labels=False,
             strict=True,
         )
-        if alignment_report.get("verdict") != "NOT APPLICABLE":
+        if alignment_report.get("verdict") not in {"NOT APPLICABLE", "SKIPPED"}:
             raise RuntimeError(
-                "single-panel alignment audit did not return NOT APPLICABLE"
+                "single-panel alignment audit did not return NOT APPLICABLE or SKIPPED"
             )
 
         write_tsv(replicates, replicates_path)

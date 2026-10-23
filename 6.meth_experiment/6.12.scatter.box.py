@@ -45,6 +45,36 @@ PREFIX = "RCA_methylation_expression"
 PERMUTATIONS = np.array(list(itertools.permutations(range(8))), dtype=np.int16)
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def read_tsv(path: Path) -> pd.DataFrame:
     """Retain blanks as missing, reject duplicate headers and ragged records."""
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -204,31 +234,41 @@ def p_label(p):
 
 def load_alignment(tools_dir):
     path = tools_dir / "audit_panel_alignment.py"
+    if not Path(path).is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {path}")
+        return None
     spec = importlib.util.spec_from_file_location("rca_panel_alignment", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load alignment auditor: {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
 def alignment_report(fig, labels, auditor, output):
     # The shared helper recognizes bare letters only. Measure parenthesized
     # labels explicitly and run its same geometric audit with labels required.
-    first = auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
-                                                       gutter_tolerance_pt=1.5, strict=True)
-    manifest = auditor.matplotlib_layout_manifest(fig)
-    for panel, text in zip(manifest["panels"], labels):
-        xy = text.get_transform().transform(text.get_position())
-        xy = fig.dpi_scale_trans.inverted().transform(xy) * 72
-        panel["panel_label"] = text.get_text().strip("()")
-        panel["panel_label_anchor_pt"] = list(map(float, xy))
-    report = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
-                                            gutter_tolerance_pt=1.5, require_panel_labels=True)
-    auditor.write_json_report(report, output)
-    if auditor.exit_code(report, strict=True):
-        raise RuntimeError(auditor.render_text(report, strict=True))
+    if auditor is None:
+        return _skip_optional_qa("audit_panel_alignment.py is unavailable", output)
+    else:
+        first = auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
+                                                           gutter_tolerance_pt=1.5, strict=True)
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, text in zip(manifest["panels"], labels):
+            xy = text.get_transform().transform(text.get_position())
+            xy = fig.dpi_scale_trans.inverted().transform(xy) * 72
+            panel["panel_label"] = text.get_text().strip("()")
+            panel["panel_label_anchor_pt"] = list(map(float, xy))
+        report = auditor.audit_layout_manifest(manifest, tolerance_pt=1.5,
+                                                gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(report, output)
+        if auditor.exit_code(report, strict=True):
+            raise RuntimeError(auditor.render_text(report, strict=True))
     return report
 
 
@@ -305,6 +345,8 @@ def make_figure(feature, groups, points, stats, auditor, stem):
 
 
 def run_audit(command, report_path):
+    if _skip_missing_qa_command(command, report_path):
+        return
     result = subprocess.run(command, text=True, capture_output=True)
     report_path.write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
@@ -329,8 +371,7 @@ def main(argv=None):
         return 0
     groups, points, stats = summarize(features, data)
     auditor = load_alignment(args.qa_tools)
-    if importlib.util.find_spec("fitz") is None:
-        raise RuntimeError("PDF collision QA requires PyMuPDF (fitz); rendering not started")
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_dir = args.output_dir / f"{PREFIX}_QA"
     qa_dir.mkdir(exist_ok=True)
@@ -360,11 +401,11 @@ def main(argv=None):
         finally:
             plt.close(fig)
         all_panels.extend(panels)
-        print(f"[{index:02d}/17] {feature}: exported PDF/SVG/PNG/TIFF; rendered QA PASS", flush=True)
+        print(f"[{index:02d}/17] {feature}: exported PDF/SVG/PNG/TIFF; rendered QA {'INCOMPLETE' if _OPTIONAL_QA_SKIPPED else 'PASS'}", flush=True)
     pd.DataFrame(all_panels).to_csv(qa_dir / "panels.tsv", sep="\t", index=False)
     missing = [{"feature": f, "sample": str(row["sample"]), "temperature": int(row["temperature"])}
                for f in features for _, row in data.loc[data[f].isna()].iterrows()]
-    report = dict(status="automated_QA_PASS", figure_count=17, panels=85, tests=85,
+    report = dict(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), figure_count=17, panels=85, tests=85,
                   input_sha256=hashlib.sha256(args.input.read_bytes()).hexdigest(),
                   features_sha256=hashlib.sha256(args.features.read_bytes()).hexdigest(),
                   missing_methylation=missing, excluded_expression_observations=0,

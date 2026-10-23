@@ -9,8 +9,23 @@ for prefix in CG CHG CHH; do
         echo "Error: Cannot read $reference" >&2
         exit 1
     fi
-    # 第一列为已有位点编号，保留非连续编号及原始顺序。
-    identifiers=$(awk 'NF && $1 !~ /^#/ {print $1}' "$reference") || exit 1
+    # 第一列是字符串编号（如 CG_-1、CG_0、CHG_2.1），不重新编号或排序。
+    # 仅前四列用于编号和匹配；后面的参考值/CV 可为空。
+    identifiers=$(awk -v prefix="$prefix" '
+        NF && $1 !~ /^#/ && $1 != "track" && $1 != "browser" {
+            if (NF < 4 || index($1, prefix "_") != 1 ||
+                $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/ || $4 <= $3) {
+                print "Error: Invalid numbered reference at " FILENAME ":" FNR > "/dev/stderr"
+                exit 1
+            }
+            key = $2 SUBSEP $3 SUBSEP $4
+            if (seen_id[$1]++ || seen_site[key]++) {
+                print "Error: Duplicate identifier or coordinate at " FILENAME ":" FNR > "/dev/stderr"
+                exit 1
+            }
+            print $1
+        }
+    ' "$reference") || exit 1
     while IFS= read -r identifier; do
         [[ -n "$identifier" ]] && columns+=("$identifier")
     done <<< "$identifiers"
@@ -29,11 +44,11 @@ process_bedgraph() {
     values=$(awk '
         NF && $1 !~ /^#/ && $1 != "track" && $1 != "browser" {
             if (FILENAME == ARGV[1]) {
-                key = $1 SUBSEP $3
+                key = $1 SUBSEP $2 SUBSEP $3
                 if (!(key in data)) data[key] = $4
             } else {
-                # numbered.tsv：第 1 列编号，第 2 列染色体，第 4 列终点。
-                key = $2 SUBSEP $4
+                # numbered.tsv：第 1 列编号，第 2–4 列为染色体、起点、终点。
+                key = $2 SUBSEP $3 SUBSEP $4
                 # 标记前缀避免命令替换丢失末尾空值。
                 print "value:" ((key in data) ? data[key] : "")
             }
@@ -51,7 +66,8 @@ collect_samples() {
     local kind=$1 path sample temperature replicate
     local -a files=()
     if [[ "$kind" == meth ]]; then
-        files=(methdata/*/*.R1.fit.fastq.gz)
+        # 样本名单来自实际用于取值的 CG bedGraph，不依赖清理后的 FASTQ。
+        files=(methdata/bismark/*/*.CG.RCA.promoter_terminator.processed.bedGraph)
     else
         files=(RCA/rnadata/*.RCA.transcript.txt RCA/rnadata/*.RCA.transition.txt)
     fi
@@ -72,6 +88,10 @@ collect_samples() {
 shopt -s nullglob
 meth_records=$(collect_samples meth) || exit 1
 rna_records=$(collect_samples rna) || exit 1
+if [[ -z "$meth_records" ]]; then
+    echo "Error: No methylation CG bedGraph input files in methdata/bismark" >&2
+    exit 1
+fi
 if [[ -z "$rna_records" ]]; then
     echo "Error: No RNA input files in RCA/rnadata" >&2
     exit 1

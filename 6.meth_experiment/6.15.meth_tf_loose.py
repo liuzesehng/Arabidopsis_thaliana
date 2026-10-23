@@ -38,6 +38,36 @@ PREFIX = 'CHH1634_CHH1635_TF_RCA'
 PERMUTATIONS = np.array(list(itertools.permutations(range(8))), dtype=np.int16)
 
 
+# Optional external QA: keep each plotting script usable on its own.
+_OPTIONAL_QA_SKIPPED = []
+
+
+def _skip_optional_qa(reason, output=None):
+    """Record an unavailable check without claiming that it passed."""
+    if reason not in _OPTIONAL_QA_SKIPPED:
+        _OPTIONAL_QA_SKIPPED.append(reason)
+        print(f"[QA SKIPPED] {reason}", file=sys.stderr)
+    report = {"verdict": "SKIPPED", "status": "SKIPPED", "auditable": False,
+              "reason": reason}
+    if output is not None:
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def _skip_missing_qa_command(command, output=None):
+    """Only missing optional scripts are skipped; executed checks stay strict."""
+    script = Path(command[1])
+    if script.is_file():
+        return False
+    reason = f"Optional QA tool not found: {script}"
+    _skip_optional_qa(reason, output)
+    if "--json-out" in command:
+        _skip_optional_qa(reason, command[command.index("--json-out") + 1])
+    return True
+
+
 def read_tsv(path):
     with Path(path).open(encoding='utf-8-sig', newline='') as h:
         rows = list(csv.reader(h, delimiter='\t'))
@@ -157,10 +187,17 @@ def summarize(spl, rca, gene, symbol):
 
 
 def load_auditor():
+    if not Path(QA_TOOLS / 'audit_panel_alignment.py').is_file():
+        _skip_optional_qa(f"Optional QA tool not found: {QA_TOOLS / 'audit_panel_alignment.py'}")
+        return None
     spec = importlib.util.spec_from_file_location('meth_tf_alignment', QA_TOOLS / 'audit_panel_alignment.py')
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        _skip_optional_qa(f"Optional alignment dependency unavailable: {exc}")
+        return None
     return module
 
 
@@ -227,25 +264,30 @@ def make_figure(groups, points, stats, qa, symbol):
         fig.text(.5, y, caption, ha='center', fontsize=6)
     fig.canvas.draw()
     auditor = load_auditor()
-    auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
-        gutter_tolerance_pt=1.5, strict=True)
-    # The automatic label detector only recognizes bare letters. Measure the
-    # displayed parenthesized labels explicitly for the same alignment gate.
-    manifest = auditor.matplotlib_layout_manifest(fig)
-    for panel, label in zip(manifest['panels'], panel_labels):
-        xy = label.get_transform().transform(label.get_position())
-        anchor = fig.dpi_scale_trans.inverted().transform(xy) * 72
-        panel['panel_label'] = label.get_text()
-        panel['panel_label_anchor_pt'] = list(map(float, anchor))
-    report = auditor.audit_layout_manifest(manifest,
-        tolerance_pt=1.5, gutter_tolerance_pt=1.5, require_panel_labels=True)
-    auditor.write_json_report(report, qa / 'alignment.json')
-    if auditor.exit_code(report, strict=True):
-        raise RuntimeError(auditor.render_text(report, strict=True))
+    if auditor is None:
+        _skip_optional_qa("audit_panel_alignment.py is unavailable", qa / 'alignment.json')
+    else:
+        auditor.require_matplotlib_panel_alignment(fig, tolerance_pt=1.5,
+            gutter_tolerance_pt=1.5, strict=True)
+        # The automatic label detector only recognizes bare letters. Measure the
+        # displayed parenthesized labels explicitly for the same alignment gate.
+        manifest = auditor.matplotlib_layout_manifest(fig)
+        for panel, label in zip(manifest['panels'], panel_labels):
+            xy = label.get_transform().transform(label.get_position())
+            anchor = fig.dpi_scale_trans.inverted().transform(xy) * 72
+            panel['panel_label'] = label.get_text()
+            panel['panel_label_anchor_pt'] = list(map(float, anchor))
+        report = auditor.audit_layout_manifest(manifest,
+            tolerance_pt=1.5, gutter_tolerance_pt=1.5, require_panel_labels=True)
+        auditor.write_json_report(report, qa / 'alignment.json')
+        if auditor.exit_code(report, strict=True):
+            raise RuntimeError(auditor.render_text(report, strict=True))
     return fig, audit_rows
 
 
 def run_audit(name, command, qa):
+    if _skip_missing_qa_command([sys.executable, *map(str, command)], qa / name):
+        return
     result = subprocess.run([sys.executable, *map(str, command)], capture_output=True, text=True)
     (qa / name).write_text(result.stdout + result.stderr, encoding='utf-8')
     if result.returncode:
@@ -377,8 +419,7 @@ def main(argv=None):
     if args.validate_only:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
-    if importlib.util.find_spec('fitz') is None:
-        raise RuntimeError('PyMuPDF is required for PDF collision QA; NOT AUDITABLE')
+    # PDF QA dependencies are checked only when the optional tools run.
     args.output_dir.mkdir(parents=True, exist_ok=True)
     qa_root = args.output_dir / f'{PREFIX}_QA'
     qa_root.mkdir(exist_ok=True)
@@ -411,8 +452,8 @@ def main(argv=None):
         finally:
             plt.close(fig)
         write_table(pd.DataFrame(panels), qa / 'panels.tsv')
-        print(f'Exported {row.symbol} ({row.motif_id}): five panels, automated QA PASS', flush=True)
-    summary.update(status='automated_QA_PASS', figure_size_mm=[183, 150], raster_dpi=600,
+        print(f'Exported {row.symbol} ({row.motif_id}): five panels, automated QA {"INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "PASS"}', flush=True)
+    summary.update(status=("automated_QA_INCOMPLETE" if _OPTIONAL_QA_SKIPPED else "automated_QA_PASS"), figure_size_mm=[183, 150], raster_dpi=600,
                    question='Are TFs with motifs near the selected CHH sites associated with RCA across temperatures?',
                    archetype='quantitative grid; total expression, isoforms and complementary proportions',
                    coordinates='BED 0-based half-open sites; FIMO 1-based closed; nearest nucleotide distance <= window',
