@@ -358,8 +358,11 @@ def plot_tf_set(long_df, stats_df, symbols, set_name):
     ax.set_ylim(0, ylim)
     ax.set_xlim(-0.55, len(symbols)-0.45)
     ax.set_xticks(range(len(symbols)), symbols)
+    if set_name == 'coexpression':
+        plt.setp(ax.get_xticklabels(), fontstyle='italic')
     ax.set_ylabel('ln(TPM + 1)')
-    ax.set_xlabel('Transcription factor', labelpad=8)
+    ax.set_xlabel('Transcription factor genes' if set_name == 'coexpression'
+                  else 'Transcription factor', labelpad=8)
     ax.tick_params(axis='x', length=0, pad=7)
     fig.text(0.5, 0.95, 'Antagonistic TF' if single else 'Coexpression TFs',
              ha='center', va='top', fontsize=9)
